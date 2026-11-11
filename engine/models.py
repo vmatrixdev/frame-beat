@@ -63,3 +63,13 @@ class Timeline(BaseModel):
     project_title: str = Field(..., description="AMV project title")
     target_audio: str = Field(..., description="Path to audio soundtrack file")
     cuts: List[TimelineCut] = Field(..., description="Ordered sequence of cuts placed against the audio")
+
+
+class RenderProgress(BaseModel):
+    percent: float = Field(default=0.0, description="Progress percentage from 0.0 to 100.0")
+    current_time_sec: float = Field(default=0.0, description="Current rendered time in seconds")
+    total_time_sec: float = Field(default=0.0, description="Total timeline duration in seconds")
+    fps: float = Field(default=0.0, description="Current encoding FPS")
+    speed: str = Field(default="0x", description="Current encoding speed")
+    frame: int = Field(default=0, description="Current encoded frame count")
+

@@ -13,6 +13,9 @@ import numpy as np
 import cv2
 import pytest
 
+from engine.models import Timeline, TimelineCut
+
+
 
 def generate_synthetic_audio(
     output_path: str | Path,
@@ -172,3 +175,47 @@ def synthetic_video_dir(tmp_path: Path) -> Path:
         ],
     )
     return v_dir
+
+
+def generate_synthetic_timeline(
+    tmp_path: Path,
+    title: str = "Test Synthetic AMV",
+    clip_duration: float = 3.0,
+    audio_duration: float = 6.0,
+) -> Timeline:
+    """Creates synthetic video clips and audio, returning a ready-to-render Timeline."""
+    v1 = generate_synthetic_video(tmp_path / "clip1.mp4", duration_sec=clip_duration)
+    v2 = generate_synthetic_video(tmp_path / "clip2.mp4", duration_sec=clip_duration)
+    a = generate_synthetic_audio(tmp_path / "soundtrack.wav", duration_sec=audio_duration)
+
+    return Timeline(
+        project_title=title,
+        target_audio=str(a.resolve()),
+        cuts=[
+            TimelineCut(
+                source_file=str(v1.resolve()),
+                source_in=0.5,
+                source_out=2.0,
+                timeline_start=0.0,
+                timeline_end=1.5,
+                transition="cut",
+                pacing_beat_interval=4,
+            ),
+            TimelineCut(
+                source_file=str(v2.resolve()),
+                source_in=1.0,
+                source_out=2.5,
+                timeline_start=1.5,
+                timeline_end=3.0,
+                transition="cut",
+                pacing_beat_interval=4,
+            ),
+        ],
+    )
+
+
+@pytest.fixture
+def synthetic_timeline(tmp_path: Path) -> Timeline:
+    """Pytest fixture providing a 2-cut Timeline backed by real synthetic audio/video files."""
+    return generate_synthetic_timeline(tmp_path)
+

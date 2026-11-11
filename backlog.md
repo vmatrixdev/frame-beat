@@ -36,16 +36,16 @@ Core processing library and CLI sidecar.
 ## Milestone 2: Assembler & Exporter (`engine/stitcher.py`)
 Deterministic timeline assembly and NLE interchange.
 
-- [ ] **2.1: FFmpeg Stitcher**
+- [x] **2.1: FFmpeg Stitcher**
   - Implement deterministic filter complexes (`concat`, `trim`, `setpts`) to assemble cuts frame-accurately.
   - Add audio muxing aligning `target_audio` exactly with video timeline.
   - Support hardware acceleration flags (e.g. VideoToolbox on macOS).
 
-- [ ] **2.2: OpenTimelineIO / FCPXML Exporter**
+- [x] **2.2: OpenTimelineIO / FCPXML Exporter**
   - Export timeline cuts to `.otio` and `.fcpxml` formats.
   - Verify import compatibility with DaVinci Resolve and Final Cut Pro.
 
-- [ ] **2.3: CLI Sidecar Interface (`engine/main.py`)**
+- [x] **2.3: CLI Sidecar Interface (`engine/main.py`)**
   - Build CLI commands (`analyze-audio`, `analyze-video`, `direct`, `render`, `export-otio`).
   - Ensure stdout streaming progress and JSON results for IPC sidecar integration with Tauri.
 
