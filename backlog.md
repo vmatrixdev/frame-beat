@@ -70,3 +70,26 @@ Desktop application interface for visual editing and scrubbing.
 - [x] **3.4: Video Preview & Export Controls**
   - Scrubbable video player with frame-accurate preview.
   - One-click trigger for headless FFmpeg export or OTIO project save.
+
+---
+
+## Milestone 4: Production Readiness, Automation & Packaging
+Autonomous verification, packaging scripts, CI/CD, and developer documentation.
+
+- [x] **4.1: Autonomous End-to-End Demo Pipeline (`scripts/demo_pipeline.py`)**
+  - Generates synthetic 128 BPM electronic WAV audio and multi-scene MP4 clips.
+  - Runs full pipeline: audio analysis -> scene detection -> timeline direction -> FFmpeg stitching -> OTIO & FCPXML project export.
+  - Validates stream integrity (H.264 video, AAC audio) using FFprobe.
+
+- [x] **4.2: Sidecar Packaging & Distribution (`scripts/bundle_sidecar.sh`)**
+  - Generates platform-specific sidecar binaries (`amv-engine-$TARGET`) for Tauri v2 bundle integration.
+  - Implements executable wrapper script routing IPC commands directly to the Python engine.
+
+- [x] **4.3: Cross-Platform CI / Automation (`.github/workflows/ci.yml`)**
+  - Automated testing across Linux (Ubuntu) and macOS.
+  - Python test suite execution with pytest and Node test suite execution with vitest.
+  - Production Vite application build verification.
+
+- [x] **4.4: Technical Architecture & User Documentation**
+  - Comprehensive 3-phase deterministic architecture specification (`docs/ARCHITECTURE.md`).
+  - User and developer guide detailing CLI usage, Desktop UI, codecs, and NLE workflows (`docs/USER_GUIDE.md`).

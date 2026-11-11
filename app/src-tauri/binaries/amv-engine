@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# AMV Maker - Tauri Sidecar Binary Wrapper
+# Routes CLI & IPC requests to the Python engine (engine/main.py)
+# ==============================================================================
+
+set -eo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Discover project root by navigating up from app/src-tauri/binaries
+if [ -f "$SCRIPT_DIR/../../../engine/main.py" ]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+elif [ -f "$SCRIPT_DIR/../../engine/main.py" ]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+elif [ -f "$SCRIPT_DIR/engine/main.py" ]; then
+    PROJECT_ROOT="$SCRIPT_DIR"
+elif [ -n "$AMV_ENGINE_ROOT" ] && [ -f "$AMV_ENGINE_ROOT/engine/main.py" ]; then
+    PROJECT_ROOT="$AMV_ENGINE_ROOT"
+else
+    # Fallback to current working directory if engine exists
+    if [ -f "engine/main.py" ]; then
+        PROJECT_ROOT="$(pwd)"
+    else
+        echo "Error: Cannot locate AMV Maker engine/main.py" >&2
+        exit 1
+    fi
+fi
+
+# Ensure standard binary paths (Homebrew, system bins) are in PATH for FFmpeg / FFprobe
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+# Locate python interpreter
+if [ -x "$PROJECT_ROOT/engine/.venv/bin/python" ]; then
+    PYTHON_BIN="$PROJECT_ROOT/engine/.venv/bin/python"
+elif [ -n "$VIRTUAL_ENV" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+    PYTHON_BIN="$VIRTUAL_ENV/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python)"
+else
+    echo "Error: Python interpreter not found" >&2
+    exit 1
+fi
+
+# Ensure project root is in PYTHONPATH
+export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
+
+# Forward all arguments directly to engine CLI
+exec "$PYTHON_BIN" "$PROJECT_ROOT/engine/main.py" "$@"

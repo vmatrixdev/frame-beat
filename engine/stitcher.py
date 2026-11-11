@@ -5,6 +5,7 @@ Deterministic cut-to-cut concatenation using FFmpeg and project export to OpenTi
 
 from __future__ import annotations
 
+from collections import Counter
 import logging
 import os
 from pathlib import Path
@@ -145,7 +146,23 @@ def render_ffmpeg(
         )
         video_streams.append(v_stream)
 
-    concatenated_video = ffmpeg.concat(*video_streams, v=1, a=0)
+    # In FFmpeg filter graph, if a clip/scene stream appears multiple times,
+    # ffmpeg-python requires a split filter rather than multiple edges from the same node.
+    stream_counts = Counter(video_streams)
+    split_streams = {}
+    for stream, count in stream_counts.items():
+        if count > 1:
+            split_node = stream.split()
+            split_streams[stream] = [split_node[idx] for idx in range(count)]
+
+    final_video_streams = []
+    for stream in video_streams:
+        if stream in split_streams:
+            final_video_streams.append(split_streams[stream].pop(0))
+        else:
+            final_video_streams.append(stream)
+
+    concatenated_video = ffmpeg.concat(*final_video_streams, v=1, a=0)
     audio_stream = ffmpeg.input(str(target_audio_path))
 
     # Resolve video encoder codec
