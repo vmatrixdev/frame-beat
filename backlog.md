@@ -8,28 +8,29 @@ AMV Maker is an automated Anime Music Video creation suite that uses determinist
 ## Milestone 1: Python Media Engine (`engine/`)
 Core processing library and CLI sidecar.
 
-- [ ] **1.1: Project Setup & Package Configuration**
+- [x] **1.1: Project Setup & Package Configuration**
   - Initialize Python project with `pyproject.toml` (compatible with `uv` and standard venv).
   - Configure dependencies: `librosa`, `soundfile`, `scenedetect[opencv]`, `pydantic`, `ffmpeg-python`, `google-genai`, `numpy`.
   - Implement typed Pydantic models matching `specs/schemas.json`.
 
-- [ ] **1.2: Audio Analyzer (`engine/audio_analyzer.py`)**
+- [x] **1.2: Audio Analyzer (`engine/audio_analyzer.py`)**
   - Extract waveform, compute tempo (`tempo_bpm`), and detect beat frames with `librosa.beat.beat_track`.
   - Extract downbeats using onset strength and musical bar tracking (4/4 time signature).
   - Calculate RMS dynamic energy across sliding windows (e.g., 2-second windows) to partition into segments: `intro`, `verse`, `build`, `drop`, `chorus`, `outro`.
   - Output standardized `beats.json`.
 
-- [ ] **1.3: Visual Segmenter (`engine/visual_analyzer.py`)**
+- [x] **1.3: Visual Segmenter (`engine/visual_analyzer.py`)**
   - Run PySceneDetect (`ContentDetector` / `AdaptiveDetector`) on source video directory or files.
   - Export representative keyframe thumbnails into a cache folder.
   - Compute frame metrics: sharpness score (Laplacian variance), basic color brightness, and scene duration.
   - Output standardized `scenes.json`.
 
-- [ ] **1.4: LLM Director (`engine/director.py`)**
+- [x] **1.4: LLM Director (`engine/director.py`)**
   - Connect to Gemini 2.0 / 1.5 Flash using the Google GenAI SDK.
   - Formulate structured prompt ingesting `beats.json`, `scenes.json`, and narrative creative directives.
   - Enforce `response_schema` adhering to `Timeline` schema.
   - Match intense high-energy scenes / cuts to musical drops and downbeats; generate `timeline.json`.
+  - Offline deterministic fallback mode when `GEMINI_API_KEY` is not present.
 
 ---
 
