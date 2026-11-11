@@ -1,6 +1,6 @@
 /**
  * TypeScript Data Contracts for AMV Maker UI
- * Generated from specs/schemas.json
+ * Generated from specs/schemas.json and engine CLI IPC contracts
  */
 
 export type EnergyLevel = "low" | "medium" | "high" | "drop" | "outro" | "intro" | "build";
@@ -49,10 +49,46 @@ export interface TimelineCut {
   timeline_end: number;
   transition: TransitionType;
   pacing_beat_interval?: number;
+  scene_id?: number;
+  keyframe_path?: string;
 }
 
 export interface Timeline {
   project_title: string;
   target_audio: string;
   cuts: TimelineCut[];
+}
+
+export interface RenderOptions {
+  codec?: string;
+  hwaccel?: boolean;
+  preset?: string;
+  resolution?: string;
+  fps?: number;
+}
+
+export interface RenderProgress {
+  type: "progress";
+  percent: number;
+  currentTime: number;
+  totalTime: number;
+  fps: number;
+  speed: string;
+  frame?: number;
+}
+
+export interface RenderResult {
+  type: "completed";
+  status: "success" | "failed";
+  outputPath: string;
+  duration?: number;
+  error?: string;
+}
+
+export interface ExportResult {
+  type: "completed";
+  status: "success" | "failed";
+  outputPath: string;
+  format?: string;
+  error?: string;
 }

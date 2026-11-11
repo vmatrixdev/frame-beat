@@ -1,185 +1,418 @@
-import React, { useState } from "react";
-import { 
-  Music, 
-  Film, 
-  Sparkles, 
-  Play, 
-  Download, 
-  Sliders, 
-  Layers, 
-  CheckCircle2, 
-  AlertCircle 
+import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  Download,
+  Layers,
+  Sparkles,
+  CheckCircle2,
+  Loader2,
+  Cpu,
 } from "lucide-react";
 import type { BeatsData, ScenesCatalog, Timeline } from "./types/schemas";
+import { engineClient, isTauriEnvironment } from "./services/engineClient";
+import { DropZones } from "./components/DropZones";
+import { WaveformVisualizer } from "./components/WaveformVisualizer";
+import { TimelineTrack } from "./components/TimelineTrack";
+import { VideoPreview } from "./components/VideoPreview";
+import { ExportModal, type ExportFormat } from "./components/ExportModal";
+
+const PROMPT_PRESETS = [
+  "Dynamic action cuts timed with chorus beat drops",
+  "Rapid flash transitions on every 2nd beat",
+  "Atmospheric slow pans building into high-motion drops",
+  "High sharpness katana duels synchronized with 4/4 downbeats",
+];
 
 export default function App() {
   const [audioFile, setAudioFile] = useState<string | null>(null);
   const [videoDir, setVideoDir] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState<string>("Dynamic action cuts timed with chorus beat drops");
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [prompt, setPrompt] = useState<string>(
+    "Dynamic action cuts timed with chorus beat drops"
+  );
+  const [projectTitle, setProjectTitle] = useState<string>("Neon Cybernetic Overdrive");
+
+  // Analysis & Engine state
+  const [isAnalyzingAudio, setIsAnalyzingAudio] = useState<boolean>(false);
+  const [isAnalyzingScenes, setIsAnalyzingScenes] = useState<boolean>(false);
+  const [isDirecting, setIsDirecting] = useState<boolean>(false);
   const [beats, setBeats] = useState<BeatsData | null>(null);
   const [scenes, setScenes] = useState<ScenesCatalog | null>(null);
   const [timeline, setTimeline] = useState<Timeline | null>(null);
 
+  // Playback & Scrubber state
+  const [currentTime, setCurrentTime] = useState<number>(0);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [playbackRate, setPlaybackRate] = useState<number>(1.0);
+  const [selectedCutIndex, setSelectedCutIndex] = useState<number | null>(null);
+
+  // Export Modal state
+  const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("mp4");
+
+  const isNativeTauri = isTauriEnvironment();
+  const lastTimeRef = useRef<number | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+
+  const duration =
+    timeline?.cuts.length
+      ? timeline.cuts[timeline.cuts.length - 1].timeline_end
+      : beats?.duration_sec || 16.0;
+
+  // Handle Audio Selection & Analysis
+  const handleSelectAudio = async (path: string) => {
+    setAudioFile(path);
+    setIsAnalyzingAudio(true);
+    try {
+      const beatsResult = await engineClient.analyzeSoundtrack(path);
+      setBeats(beatsResult);
+    } catch (err) {
+      console.error("Audio analysis failed:", err);
+    } finally {
+      setIsAnalyzingAudio(false);
+    }
+  };
+
+  // Handle Video Selection & Scene Detection
+  const handleSelectVideoDir = async (dir: string) => {
+    setVideoDir(dir);
+    setIsAnalyzingScenes(true);
+    try {
+      const scenesResult = await engineClient.analyzeScenes(dir);
+      setScenes(scenesResult);
+    } catch (err) {
+      console.error("Scene analysis failed:", err);
+    } finally {
+      setIsAnalyzingScenes(false);
+    }
+  };
+
+  // Instant Demo Fixtures Loader
+  const handleLoadDemoFixtures = () => {
+    const fixtures = engineClient.loadDemoFixtures();
+    setAudioFile(fixtures.timeline.target_audio);
+    setVideoDir("anime_raws_1080p");
+    setBeats(fixtures.beats);
+    setScenes(fixtures.scenes);
+    setTimeline(fixtures.timeline);
+    setProjectTitle(fixtures.timeline.project_title);
+    setCurrentTime(0);
+    setIsPlaying(false);
+  };
+
+  // Direct AMV Timeline with Gemini LLM / Procedural Director
+  const handleGenerateTimeline = async () => {
+    if (!beats || !scenes) {
+      // Auto-populate demo inputs if empty
+      const fixtures = engineClient.loadDemoFixtures();
+      setBeats(fixtures.beats);
+      setScenes(fixtures.scenes);
+      setAudioFile(fixtures.timeline.target_audio);
+      setVideoDir("anime_raws_1080p");
+    }
+
+    const currentBeats = beats || engineClient.loadDemoFixtures().beats;
+    const currentScenes = scenes || engineClient.loadDemoFixtures().scenes;
+
+    setIsDirecting(true);
+    try {
+      const generated = await engineClient.directAmv(
+        currentBeats,
+        currentScenes,
+        prompt,
+        projectTitle
+      );
+      setTimeline(generated);
+      setCurrentTime(0);
+      setIsPlaying(false);
+    } catch (err) {
+      console.error("Director generation failed:", err);
+    } finally {
+      setIsDirecting(false);
+    }
+  };
+
+  // Playhead scrubber loop
+  const updatePlayback = useCallback(
+    (timestamp: number) => {
+      if (lastTimeRef.current !== null && isPlaying) {
+        const deltaSec = ((timestamp - lastTimeRef.current) / 1000) * playbackRate;
+        setCurrentTime((prev) => {
+          const next = prev + deltaSec;
+          if (next >= duration) {
+            setIsPlaying(false);
+            return 0;
+          }
+          return next;
+        });
+      }
+      lastTimeRef.current = timestamp;
+      if (isPlaying) {
+        animFrameRef.current = requestAnimationFrame(updatePlayback);
+      }
+    },
+    [isPlaying, playbackRate, duration]
+  );
+
+  useEffect(() => {
+    if (isPlaying) {
+      lastTimeRef.current = performance.now();
+      animFrameRef.current = requestAnimationFrame(updatePlayback);
+    } else {
+      lastTimeRef.current = null;
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current);
+      }
+    }
+    return () => {
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current);
+      }
+    };
+  }, [isPlaying, updatePlayback]);
+
+  // Spacebar hotkey to toggle Play/Pause
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      if (e.code === "Space") {
+        e.preventDefault();
+        setIsPlaying((p) => !p);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
-    <div className="flex flex-col h-screen bg-slate-950 text-slate-100">
-      {/* Top Navigation Bar */}
-      <header className="h-14 border-b border-slate-800 px-6 flex items-center justify-between bg-slate-900/60 backdrop-blur">
+    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 select-none overflow-hidden">
+      {/* Top Application Bar */}
+      <header className="h-14 border-b border-slate-800 px-6 flex items-center justify-between bg-slate-900/80 backdrop-blur z-20">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/30">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-rose-500 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/20">
             AMV
           </div>
-          <h1 className="font-semibold text-lg tracking-tight">AMV Maker</h1>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-            v0.1.0 • Phase 1
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="font-bold text-base tracking-tight text-slate-100">AMV Maker</h1>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">
+                v0.1.0 • Phase 1
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Runtime Environment Badge */}
+        <div className="flex items-center gap-2 text-xs font-mono px-3 py-1 rounded-full bg-slate-950/70 border border-slate-800">
+          <div
+            className={`w-2 h-2 rounded-full ${
+              isNativeTauri ? "bg-emerald-400 animate-pulse" : "bg-sky-400"
+            }`}
+          />
+          <span className="text-slate-300">
+            {isNativeTauri ? "Tauri v2 Desktop Shell" : "Browser Dev Mode (Simulated IPC)"}
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button 
-            disabled={!timeline}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:hover:bg-emerald-600 text-sm font-medium transition shadow"
+        {/* Export Action Buttons */}
+        <div className="flex items-center gap-2.5">
+          <button
+            disabled={!timeline || timeline.cuts.length === 0}
+            onClick={() => {
+              setExportFormat("mp4");
+              setIsExportOpen(true);
+            }}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 disabled:opacity-40 disabled:hover:bg-emerald-600 text-xs font-semibold transition shadow-md shadow-emerald-600/20"
           >
-            <Download className="w-4 h-4" /> Export Video (FFmpeg)
+            <Download className="w-4 h-4" />
+            Export MP4 (FFmpeg)
           </button>
-          <button 
-            disabled={!timeline}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-sm font-medium border border-slate-700 transition"
+          <button
+            disabled={!timeline || timeline.cuts.length === 0}
+            onClick={() => {
+              setExportFormat("otio");
+              setIsExportOpen(true);
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 disabled:opacity-40 text-xs font-medium border border-slate-700 transition"
           >
-            <Layers className="w-4 h-4" /> Export OTIO
+            <Layers className="w-4 h-4 text-indigo-400" />
+            Export OTIO
           </button>
         </div>
       </header>
 
-      {/* Main Workspace Body */}
+      {/* Main Studio Workspace */}
       <main className="flex-1 flex overflow-hidden">
-        {/* Left Control Panel */}
-        <section className="w-96 border-r border-slate-800 p-6 flex flex-col gap-6 overflow-y-auto bg-slate-900/20">
+        {/* Left Control Sidebar */}
+        <aside className="w-96 border-r border-slate-800 p-5 flex flex-col gap-5 overflow-y-auto bg-slate-900/30 shrink-0">
+          {/* Section 1: Source Inputs & DropZones */}
           <div>
-            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5">
               1. Source Inputs
             </h2>
-            <div className="space-y-3">
-              {/* Music Drop Zone */}
-              <div 
-                className="p-4 rounded-xl border border-dashed border-slate-700 hover:border-indigo-500 bg-slate-900/50 cursor-pointer transition group"
-                onClick={() => setAudioFile("/path/to/sample_track.mp3")}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition">
-                    <Music className="w-5 h-5" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">
-                      {audioFile ? audioFile.split("/").pop() : "Select Audio Track"}
-                    </div>
-                    <div className="text-xs text-slate-400">MP3, WAV, or FLAC</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Video Folder Drop Zone */}
-              <div 
-                className="p-4 rounded-xl border border-dashed border-slate-700 hover:border-indigo-500 bg-slate-900/50 cursor-pointer transition group"
-                onClick={() => setVideoDir("/path/to/anime_raws")}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition">
-                    <Film className="w-5 h-5" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">
-                      {videoDir ? videoDir.split("/").pop() : "Select Raw Videos Directory"}
-                    </div>
-                    <div className="text-xs text-slate-400">Folder with MP4, MKV, MOV</div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <DropZones
+              audioFile={audioFile}
+              videoDir={videoDir}
+              isAnalyzingAudio={isAnalyzingAudio}
+              isAnalyzingScenes={isAnalyzingScenes}
+              audioDuration={beats?.duration_sec}
+              audioBpm={beats?.tempo_bpm}
+              totalScenes={scenes?.total_scenes}
+              onSelectAudio={handleSelectAudio}
+              onSelectVideoDir={handleSelectVideoDir}
+              onLoadDemoFixtures={handleLoadDemoFixtures}
+            />
           </div>
 
-          {/* Director Creative Prompt */}
-          <div>
-            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-              2. Director Directive
-            </h2>
+          {/* Section 2: LLM Director Directive */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                2. Director Directive
+              </h2>
+              <span className="text-[10px] text-indigo-400 font-mono">Gemini Flash</span>
+            </div>
+
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={3}
               placeholder="Tell the Gemini Director how to pace and cut the AMV..."
-              className="w-full text-sm rounded-lg bg-slate-900 border border-slate-800 p-3 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-200 placeholder-slate-500 resize-none"
+              className="w-full text-xs rounded-xl bg-slate-950 border border-slate-800 p-3 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-200 placeholder-slate-500 resize-none"
             />
+
+            {/* Quick Directive Chips */}
+            <div className="flex flex-wrap gap-1.5">
+              {PROMPT_PRESETS.map((p, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setPrompt(p)}
+                  className="text-[10px] px-2 py-1 rounded-md bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/50 text-slate-300 transition text-left truncate max-w-full"
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+
+            {/* Generate Action Button */}
+            <button
+              onClick={handleGenerateTimeline}
+              disabled={isDirecting}
+              className="w-full py-2.5 mt-2 rounded-xl bg-gradient-to-r from-indigo-600 to-rose-600 hover:from-indigo-500 hover:to-rose-500 disabled:opacity-50 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition active:scale-[0.99]"
+            >
+              {isDirecting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Generating Cuts & Transitions...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  Generate AMV Timeline
+                </>
+              )}
+            </button>
           </div>
 
-          {/* Action Trigger */}
-          <button
-            onClick={() => setIsAnalyzing(!isAnalyzing)}
-            className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition active:scale-[0.99]"
-          >
-            <Sparkles className="w-4 h-4" />
-            Generate AMV Timeline
-          </button>
-
-          {/* Engine Status info */}
-          <div className="mt-auto p-3.5 rounded-lg bg-slate-900/80 border border-slate-800/80 text-xs text-slate-400 flex flex-col gap-1.5">
-            <div className="flex items-center justify-between font-medium text-slate-300">
-              <span>Engine Status</span>
-              <span className="text-emerald-400 flex items-center gap-1">
+          {/* Section 3: Engine Connection Status */}
+          <div className="mt-auto p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-400 flex flex-col gap-2">
+            <div className="flex items-center justify-between font-semibold text-slate-300">
+              <span className="flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5 text-indigo-400" />
+                Python Sidecar Engine
+              </span>
+              <span className="text-emerald-400 flex items-center gap-1 text-[11px]">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Ready
               </span>
             </div>
-            <div>Decoupled Python sidecar connected via JSON IPC.</div>
+            <div className="text-[11px] text-slate-400 leading-relaxed">
+              Decoupled media analysis running librosa, PySceneDetect, and FFmpeg filter complexes.
+            </div>
           </div>
-        </section>
+        </aside>
 
-        {/* Center / Right Preview & Timeline Area */}
-        <section className="flex-1 flex flex-col">
-          {/* Main Video Scrubbing Stage */}
-          <div className="flex-1 flex items-center justify-center p-8 bg-slate-950/60">
-            <div className="w-full max-w-3xl aspect-video rounded-2xl border border-slate-800 bg-slate-900/80 flex flex-col items-center justify-center shadow-2xl relative overflow-hidden group">
-              <Play className="w-12 h-12 text-slate-600 group-hover:text-indigo-400 transition" />
-              <span className="mt-3 text-sm text-slate-400 font-medium">Video Preview Stage</span>
-              <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-xs text-slate-500 bg-slate-950/80 backdrop-blur px-3 py-1.5 rounded-lg border border-slate-800">
-                <span>00:00:00 / 00:03:02</span>
-                <span>1080p 24fps • Deterministic Cuts</span>
-              </div>
+        {/* Center / Right Stage */}
+        <section className="flex-1 flex flex-col overflow-hidden bg-slate-950/40">
+          {/* Main Video Monitor Stage */}
+          <div className="flex-1 p-5 min-h-0 flex items-center justify-center">
+            <div className="w-full h-full max-w-5xl">
+              <VideoPreview
+                timeline={timeline}
+                currentTime={currentTime}
+                isPlaying={isPlaying}
+                playbackRate={playbackRate}
+                duration={duration}
+                onPlayPause={() => setIsPlaying((p) => !p)}
+                onSeek={(t) => setCurrentTime(t)}
+                onChangePlaybackRate={(r) => setPlaybackRate(r)}
+              />
             </div>
           </div>
 
-          {/* Timeline and Waveform Drawer */}
-          <div className="h-56 border-t border-slate-800 bg-slate-900/40 p-4 flex flex-col gap-2">
-            <div className="flex items-center justify-between text-xs text-slate-400 px-2">
+          {/* Bottom Docked Timeline Drawer */}
+          <div className="h-64 border-t border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-3 shrink-0">
+            {/* Header / Info bar */}
+            <div className="flex items-center justify-between text-xs text-slate-400 px-1">
               <div className="flex items-center gap-4">
-                <span className="font-semibold text-slate-300">Timeline Ruler</span>
-                <span>Tempo: 128.0 BPM</span>
-                <span>Time Signature: 4/4</span>
+                <span className="font-semibold text-slate-200">
+                  {timeline ? timeline.project_title : "No Active Timeline"}
+                </span>
+                {beats && (
+                  <>
+                    <span className="font-mono text-indigo-300">
+                      Tempo: {beats.tempo_bpm.toFixed(1)} BPM
+                    </span>
+                    <span className="font-mono text-slate-400">
+                      Time Sig: {beats.time_signature}
+                    </span>
+                  </>
+                )}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-indigo-500"></span> Beats
-                <span className="w-2 h-2 rounded-full bg-emerald-500 ml-2"></span> Downbeats
+
+              {/* Legend */}
+              <div className="flex items-center gap-3 text-[11px]">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" /> Downbeats
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-indigo-400" /> Beats
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-rose-500" /> Drop Energy
+                </span>
               </div>
             </div>
 
-            {/* Timeline Waveform representation */}
-            <div className="flex-1 rounded-xl border border-slate-800 bg-slate-950 p-3 flex flex-col justify-center relative overflow-hidden">
-              <div className="h-12 w-full flex items-center gap-1 opacity-70">
-                {Array.from({ length: 64 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={`flex-1 rounded-full ${
-                      i % 4 === 0 ? "bg-emerald-500 h-10" : "bg-indigo-500/60 h-6"
-                    }`}
-                  />
-                ))}
-              </div>
-              <div className="mt-2 text-xs text-slate-500 text-center">
-                Audio waveform with detected beat frames and downbeat markers
-              </div>
-            </div>
+            {/* Waveform Visualizer */}
+            <WaveformVisualizer
+              beatsData={beats}
+              currentTime={currentTime}
+              duration={duration}
+              onSeek={(t) => setCurrentTime(t)}
+            />
+
+            {/* Cuts Track */}
+            <TimelineTrack
+              timeline={timeline}
+              currentTime={currentTime}
+              duration={duration}
+              selectedCutIndex={selectedCutIndex}
+              onSelectCut={(idx) => setSelectedCutIndex(idx)}
+              onSeek={(t) => setCurrentTime(t)}
+            />
           </div>
         </section>
       </main>
+
+      {/* Export Dialog Modal */}
+      {timeline && (
+        <ExportModal
+          isOpen={isExportOpen}
+          timeline={timeline}
+          initialFormat={exportFormat}
+          onClose={() => setIsExportOpen(false)}
+        />
+      )}
     </div>
   );
 }

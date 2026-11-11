@@ -54,18 +54,18 @@ Deterministic timeline assembly and NLE interchange.
 ## Milestone 3: Tauri Desktop Shell (`app/`)
 Desktop application interface for visual editing and scrubbing.
 
-- [ ] **3.1: Tauri v2 + Vite + React Setup**
+- [x] **3.1: Tauri v2 + Vite + React Setup**
   - Initialize Tauri v2 shell with React, TypeScript, and Tailwind CSS.
   - Configure sidecar permissions for executing `amv-engine` binaries.
 
-- [ ] **3.2: Media Import & Drop Zones**
+- [x] **3.2: Media Import & Drop Zones**
   - Drag-and-drop zones for audio tracks and source video folders.
   - Status indicators for background analysis progress.
 
-- [ ] **3.3: Timeline & Waveform Visualizer**
+- [x] **3.3: Timeline & Waveform Visualizer**
   - Render audio waveform with detected beat markers and downbeat ticks.
   - Display scene cuts arranged along the timeline ruler.
 
-- [ ] **3.4: Video Preview & Export Controls**
+- [x] **3.4: Video Preview & Export Controls**
   - Scrubbable video player with frame-accurate preview.
   - One-click trigger for headless FFmpeg export or OTIO project save.
