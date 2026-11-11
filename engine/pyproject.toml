@@ -1,0 +1,26 @@
+[project]
+name = "amv-engine"
+version = "0.1.0"
+description = "Deterministic media analysis, LLM director, and video stitcher for AMV Maker"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7.0",
+    "librosa>=0.10.1",
+    "soundfile>=0.12.1",
+    "scenedetect[opencv]>=0.6.4",
+    "opencv-python-headless>=4.9.0",
+    "ffmpeg-python>=0.2.0",
+    "google-genai>=1.0.0",
+    "numpy>=1.26.0",
+    "opentimelineio>=0.16.0",
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+]
+
+[project.scripts]
+amv-engine = "engine.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

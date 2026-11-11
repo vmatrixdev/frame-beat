@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AMVMakerSchemas",
+  "description": "Shared JSON schemas for AMV Maker pipeline communication between Python engine and UI/TypeScript",
+  "definitions": {
+    "EnergySegment": {
+      "type": "object",
+      "required": ["start", "end", "level", "label"],
+      "properties": {
+        "start": { "type": "number", "description": "Start timestamp in seconds" },
+        "end": { "type": "number", "description": "End timestamp in seconds" },
+        "level": { 
+          "type": "string", 
+          "enum": ["low", "medium", "high", "drop", "outro", "intro", "build"],
+          "description": "Dynamic energy level" 
+        },
+        "label": { "type": "string", "description": "Musical segment descriptor (e.g. intro, verse_1, chorus_1)" }
+      }
+    },
+    "BeatsData": {
+      "type": "object",
+      "required": ["duration_sec", "tempo_bpm", "time_signature", "downbeats", "beats", "energy_segments"],
+      "properties": {
+        "duration_sec": { "type": "number", "description": "Total duration of audio in seconds" },
+        "tempo_bpm": { "type": "number", "description": "Detected tempo in beats per minute" },
+        "time_signature": { "type": "string", "description": "Musical time signature (e.g., 4/4, 3/4)" },
+        "downbeats": {
+          "type": "array",
+          "items": { "type": "number" },
+          "description": "Timestamps of measure downbeats (Bar starts) in seconds"
+        },
+        "beats": {
+          "type": "array",
+          "items": { "type": "number" },
+          "description": "Timestamps of all detected beats in seconds"
+        },
+        "energy_segments": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/EnergySegment" },
+          "description": "Calculated energy segments across the track"
+        }
+      }
+    },
+    "SceneCut": {
+      "type": "object",
+      "required": ["scene_id", "source_file", "start_time", "end_time", "duration"],
+      "properties": {
+        "scene_id": { "type": "integer", "description": "Sequential scene index" },
+        "source_file": { "type": "string", "description": "Absolute path to source video file" },
+        "start_time": { "type": "number", "description": "In point in seconds" },
+        "end_time": { "type": "number", "description": "Out point in seconds" },
+        "duration": { "type": "number", "description": "Duration in seconds" },
+        "keyframe_path": { "type": "string", "description": "Relative/absolute path to thumbnail keyframe image" },
+        "sharpness_score": { "type": "number", "description": "Laplacian variance measure of frame sharpness" },
+        "motion_score": { "type": "number", "description": "Estimated motion/activity score" },
+        "brightness_score": { "type": "number", "description": "Average frame brightness (0-255)" }
+      }
+    },
+    "ScenesCatalog": {
+      "type": "object",
+      "required": ["source_files", "total_scenes", "scenes"],
+      "properties": {
+        "source_files": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of source video files analyzed"
+        },
+        "total_scenes": { "type": "integer", "description": "Total number of scenes detected" },
+        "scenes": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/SceneCut" },
+          "description": "Detected visual scene intervals and metrics"
+        }
+      }
+    },
+    "TimelineCut": {
+      "type": "object",
+      "required": ["source_file", "source_in", "source_out", "timeline_start", "timeline_end", "transition"],
+      "properties": {
+        "source_file": { "type": "string", "description": "Path to source video file" },
+        "source_in": { "type": "number", "description": "Source clip in-point timestamp in seconds" },
+        "source_out": { "type": "number", "description": "Source clip out-point timestamp in seconds" },
+        "timeline_start": { "type": "number", "description": "Placement start time on AMV timeline in seconds" },
+        "timeline_end": { "type": "number", "description": "Placement end time on AMV timeline in seconds" },
+        "transition": { 
+          "type": "string", 
+          "enum": ["cut", "crossfade", "flash_white", "zoom_in", "whip_pan"],
+          "description": "Transition effect into this cut" 
+        },
+        "pacing_beat_interval": { "type": "integer", "description": "Cuts synchronized every N beats" }
+      }
+    },
+    "Timeline": {
+      "type": "object",
+      "required": ["project_title", "target_audio", "cuts"],
+      "properties": {
+        "project_title": { "type": "string", "description": "AMV project title" },
+        "target_audio": { "type": "string", "description": "Path to audio soundtrack file" },
+        "cuts": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/TimelineCut" },
+          "description": "Ordered sequence of cuts placed against the audio timeline"
+        }
+      }
+    }
+  }
+}
