@@ -3,6 +3,8 @@ AMV Maker Engine CLI Entrypoint.
 Provides JSON-first stdout commands for desktop sidecar integration and direct CLI usage.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional
 import typer

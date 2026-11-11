@@ -1,16 +1,18 @@
 """
 LLM Director for AMV Maker.
-Uses Gemini Flash with structured output to orchestrate cuts against musical beats and scenes.
+Uses Gemini Flash with structured output to orchestrate cuts against musical beats and scenes,
+with a deterministic fallback director for offline execution and testing.
 """
 
+from __future__ import annotations
 import json
+import logging
 import os
-from typing import Optional
-from google import genai
-from google.genai import types
+from typing import List, Optional
 
-from engine.models import BeatsData, ScenesCatalog, Timeline
+from engine.models import BeatsData, ScenesCatalog, Timeline, TimelineCut
 
+logger = logging.getLogger(__name__)
 
 DIRECTOR_SYSTEM_INSTRUCTION = """
 You are the AI Director for an Anime Music Video (AMV) Maker.
@@ -26,6 +28,111 @@ Rules:
 """
 
 
+def direct_amv_deterministic(
+    beats: BeatsData,
+    catalog: ScenesCatalog,
+    user_prompt: str = "",
+    project_title: str = "AMV Project",
+    target_audio: str = "soundtrack.wav",
+) -> Timeline:
+    """
+    Offline deterministic director: aligns cuts to downbeats and energy profiles.
+    Guarantees seamless timeline coverage and accurate source-to-timeline duration mapping.
+    """
+    if not catalog.scenes:
+        raise ValueError("Cannot direct AMV: ScenesCatalog contains no scenes.")
+
+    duration_sec = beats.duration_sec
+    if duration_sec <= 0:
+        raise ValueError("Cannot direct AMV: Audio duration must be greater than 0.")
+
+    # Collect cut boundary points on the timeline
+    cut_points: List[float] = [0.0]
+
+    # Prefer downbeats for cut boundaries
+    valid_downbeats = [db for db in beats.downbeats if 0.05 < db < (duration_sec - 0.2)]
+
+    if valid_downbeats:
+        cut_points.extend(valid_downbeats)
+    elif beats.beats:
+        # Fallback to every 4th beat
+        step = 4 if len(beats.beats) >= 4 else 1
+        for i in range(0, len(beats.beats), step):
+            b_t = beats.beats[i]
+            if 0.05 < b_t < (duration_sec - 0.2):
+                cut_points.append(b_t)
+    else:
+        # Fallback to 2-second pacing intervals
+        interval = 2.0
+        cur_t = interval
+        while cur_t < (duration_sec - 0.2):
+            cut_points.append(cur_t)
+            cur_t += interval
+
+    cut_points.append(duration_sec)
+    cut_points = sorted(list(set([round(p, 3) for p in cut_points])))
+
+    # Segregate scenes by sharpness for energy-responsive selection
+    scenes_by_sharpness = sorted(
+        catalog.scenes,
+        key=lambda s: s.sharpness_score if s.sharpness_score is not None else 0.0,
+        reverse=True,
+    )
+
+    cuts: List[TimelineCut] = []
+    scene_idx = 0
+
+    for i in range(len(cut_points) - 1):
+        t_start = cut_points[i]
+        t_end = cut_points[i + 1]
+        cut_duration = round(t_end - t_start, 3)
+
+        if cut_duration <= 0:
+            continue
+
+        # Determine energy level for this segment
+        mid_time = t_start + (cut_duration / 2.0)
+        segment_level = "medium"
+        for seg in beats.energy_segments:
+            if seg.start <= mid_time <= seg.end:
+                segment_level = seg.level
+                break
+
+        # Select scene based on energy level
+        if segment_level in ("high", "drop") and len(scenes_by_sharpness) > 1:
+            chosen_scene = scenes_by_sharpness[scene_idx % len(scenes_by_sharpness)]
+            transition = "flash_white" if segment_level == "drop" else "cut"
+        elif segment_level in ("low", "intro", "outro"):
+            chosen_scene = catalog.scenes[scene_idx % len(catalog.scenes)]
+            transition = "crossfade" if i > 0 else "cut"
+        else:
+            chosen_scene = catalog.scenes[scene_idx % len(catalog.scenes)]
+            transition = "cut"
+
+        scene_idx += 1
+
+        source_in = chosen_scene.start_time
+        source_out = round(source_in + cut_duration, 3)
+
+        cuts.append(
+            TimelineCut(
+                source_file=chosen_scene.source_file,
+                source_in=round(source_in, 3),
+                source_out=round(source_out, 3),
+                timeline_start=round(t_start, 3),
+                timeline_end=round(t_end, 3),
+                transition=transition,
+                pacing_beat_interval=4,
+            )
+        )
+
+    return Timeline(
+        project_title=project_title,
+        target_audio=target_audio,
+        cuts=cuts,
+    )
+
+
 def direct_amv(
     beats: BeatsData,
     catalog: ScenesCatalog,
@@ -33,49 +140,73 @@ def direct_amv(
     project_title: str = "AMV Project",
     api_key: Optional[str] = None,
     model: str = "gemini-2.0-flash",
+    target_audio: str = "soundtrack.wav",
+    force_fallback: bool = False,
 ) -> Timeline:
     """
     Calls Gemini structured output API to generate an AMV cut timeline.
+    If GEMINI_API_KEY is not set or API call fails, falls back to deterministic offline director.
     """
     key = api_key or os.environ.get("GEMINI_API_KEY")
-    if not key:
-        raise ValueError("GEMINI_API_KEY is not set in environment or arguments.")
 
-    client = genai.Client(api_key=key)
+    if force_fallback or not key:
+        logger.info("GEMINI_API_KEY not configured or offline mode requested. Using deterministic director.")
+        return direct_amv_deterministic(
+            beats=beats,
+            catalog=catalog,
+            user_prompt=user_prompt,
+            project_title=project_title,
+            target_audio=target_audio,
+        )
 
-    director_input = {
-        "user_creative_brief": user_prompt,
-        "music_profile": beats.model_dump(),
-        "available_scenes": [
-            {
-                "scene_id": s.scene_id,
-                "source_file": s.source_file,
-                "duration": s.duration,
-                "start_time": s.start_time,
-                "end_time": s.end_time,
-                "sharpness": s.sharpness_score,
-                "brightness": s.brightness_score,
-            }
-            for s in catalog.scenes
-        ],
-    }
+    try:
+        from google import genai
+        from google.genai import types
 
-    prompt = (
-        f"Create an AMV timeline matching this creative prompt: '{user_prompt}'.\n"
-        f"Data:\n{json.dumps(director_input, indent=2)}"
-    )
+        client = genai.Client(api_key=key)
 
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=DIRECTOR_SYSTEM_INSTRUCTION,
-            response_mime_type="application/json",
-            response_schema=Timeline,
-            temperature=0.4,
-        ),
-    )
+        director_input = {
+            "user_creative_brief": user_prompt,
+            "music_profile": beats.model_dump(),
+            "available_scenes": [
+                {
+                    "scene_id": s.scene_id,
+                    "source_file": s.source_file,
+                    "duration": s.duration,
+                    "start_time": s.start_time,
+                    "end_time": s.end_time,
+                    "sharpness": s.sharpness_score,
+                    "brightness": s.brightness_score,
+                }
+                for s in catalog.scenes
+            ],
+        }
 
-    parsed = json.loads(response.text)
-    timeline = Timeline.model_validate(parsed)
-    return timeline
+        prompt = (
+            f"Create an AMV timeline matching this creative prompt: '{user_prompt}'.\n"
+            f"Data:\n{json.dumps(director_input, indent=2)}"
+        )
+
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=DIRECTOR_SYSTEM_INSTRUCTION,
+                response_mime_type="application/json",
+                response_schema=Timeline,
+                temperature=0.4,
+            ),
+        )
+
+        parsed = json.loads(response.text)
+        timeline = Timeline.model_validate(parsed)
+        return timeline
+    except Exception as e:
+        logger.warning(f"Gemini API direct call failed ({e}); falling back to deterministic director.")
+        return direct_amv_deterministic(
+            beats=beats,
+            catalog=catalog,
+            user_prompt=user_prompt,
+            project_title=project_title,
+            target_audio=target_audio,
+        )

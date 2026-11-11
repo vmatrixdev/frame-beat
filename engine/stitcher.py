@@ -3,9 +3,19 @@ Stitcher & Exporter for AMV Maker.
 Deterministic cut-to-cut concatenation using FFmpeg and project export to OpenTimelineIO.
 """
 
+from __future__ import annotations
+import os
 from pathlib import Path
 import ffmpeg
-import opentimelineio as otio
+
+# Ensure /opt/homebrew/bin is in PATH for ffmpeg binary discovery on macOS
+if "/opt/homebrew/bin" not in os.environ.get("PATH", "") and Path("/opt/homebrew/bin/ffmpeg").exists():
+    os.environ["PATH"] = f"/opt/homebrew/bin:{os.environ.get('PATH', '')}"
+
+try:
+    import opentimelineio as otio
+except ImportError:
+    otio = None
 
 from engine.models import Timeline
 
