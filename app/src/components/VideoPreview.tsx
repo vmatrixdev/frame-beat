@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import type { Timeline, TimelineCut, SceneCut } from "../types/schemas";
 import {
   Play,
@@ -59,6 +59,9 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
   onChangeVolume,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [isHighlightPlaying, setIsHighlightPlaying] = useState<boolean>(true);
+  const [highlightCurrentTime, setHighlightCurrentTime] = useState<number>(0);
+
   const cuts = timeline?.cuts || [];
   const duration =
     customDuration ||
@@ -70,28 +73,68 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
   );
   const activeCut: TimelineCut | undefined = cuts[activeCutIndex];
 
-  // Sync video element time if previewing a scene section
+  // Sync video element time and volume if previewing a scene section
   useEffect(() => {
     if (previewScene && videoRef.current && !previewScene.is_still_image && previewScene.media_type !== "image") {
       videoRef.current.currentTime = previewScene.start_time;
+      videoRef.current.volume = volume;
+      videoRef.current.muted = isMuted;
       const playPromise = videoRef.current.play();
       if (playPromise && typeof playPromise.catch === "function") {
         playPromise.catch(() => {});
       }
+      setIsHighlightPlaying(true);
+      setHighlightCurrentTime(0);
     }
   }, [previewScene]);
 
+  // Sync volume & mute changes to the video element
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.volume = volume;
+      videoRef.current.muted = isMuted;
+    }
+  }, [volume, isMuted]);
+
+  // Toggle play/pause of the highlight video element
+  const handleToggleHighlightPlay = () => {
+    if (!videoRef.current) return;
+    if (videoRef.current.paused) {
+      const p = videoRef.current.play();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+      setIsHighlightPlaying(true);
+    } else {
+      videoRef.current.pause();
+      setIsHighlightPlaying(false);
+    }
+  };
+
   // Step 1 beat or 0.25s
   const handleStepBack = () => {
-    onSeek(Math.max(0, currentTime - 0.5));
+    if (previewScene && videoRef.current) {
+      videoRef.current.currentTime = Math.max(previewScene.start_time, videoRef.current.currentTime - 0.5);
+    } else {
+      onSeek(Math.max(0, currentTime - 0.5));
+    }
   };
 
   const handleStepForward = () => {
-    onSeek(Math.min(duration, currentTime + 0.5));
+    if (previewScene && videoRef.current) {
+      const end = previewScene.end_time > previewScene.start_time ? previewScene.end_time : videoRef.current.duration;
+      videoRef.current.currentTime = Math.min(end, videoRef.current.currentTime + 0.5);
+    } else {
+      onSeek(Math.min(duration, currentTime + 0.5));
+    }
   };
 
   const handleRestart = () => {
-    onSeek(0);
+    if (previewScene && videoRef.current) {
+      videoRef.current.currentTime = previewScene.start_time;
+      videoRef.current.play().catch(() => {});
+      setIsHighlightPlaying(true);
+    } else {
+      onSeek(0);
+    }
   };
 
   const isImg = previewScene?.is_still_image || previewScene?.media_type === "image";
@@ -118,17 +161,36 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
             ) : (
               <video
                 ref={videoRef}
-                src={`${mediaStreamUrl}#t=${previewScene.start_time},${previewScene.end_time}`}
+                key={previewScene.source_file + previewScene.start_time}
+                src={mediaStreamUrl}
                 poster={previewScene.keyframe_path}
                 autoPlay
-                loop
-                muted
                 playsInline
+                preload="auto"
                 className="w-full h-full object-contain"
-                onTimeUpdate={(e) => {
-                  const v = e.currentTarget;
-                  if (v.currentTime >= previewScene.end_time || v.currentTime < previewScene.start_time) {
-                    v.currentTime = previewScene.start_time;
+                onLoadedMetadata={() => {
+                  if (videoRef.current && previewScene) {
+                    videoRef.current.currentTime = previewScene.start_time;
+                    videoRef.current.volume = volume;
+                    videoRef.current.muted = isMuted;
+                    const p = videoRef.current.play();
+                    if (p && typeof p.catch === "function") p.catch(() => {});
+                    setIsHighlightPlaying(true);
+                  }
+                }}
+                onTimeUpdate={() => {
+                  if (videoRef.current && previewScene) {
+                    const curr = videoRef.current.currentTime;
+                    setHighlightCurrentTime(Math.max(0, curr - previewScene.start_time));
+                    const end =
+                      previewScene.end_time > previewScene.start_time
+                        ? previewScene.end_time
+                        : videoRef.current.duration;
+                    if (curr >= end || curr < previewScene.start_time) {
+                      videoRef.current.currentTime = previewScene.start_time;
+                      const p = videoRef.current.play();
+                      if (p && typeof p.catch === "function") p.catch(() => {});
+                    }
                   }
                 }}
               />
@@ -141,7 +203,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                   <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
                   <span className="font-bold">HIGHLIGHT #{previewScene.scene_id + 1}</span>
                   <span className="text-purple-400 font-semibold uppercase text-[10px] px-1.5 py-0.2 rounded bg-purple-900/60">
-                    {isImg ? "PHOTO" : "VIDEO SHOT"}
+                    {isImg ? "PHOTO" : "VIDEO CLIP"}
                   </span>
                 </div>
                 <div className="px-2.5 py-1 rounded-lg bg-slate-950/80 backdrop-blur text-xs font-mono text-slate-300 max-w-sm truncate border border-slate-800">
@@ -152,6 +214,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
               {onClearPreviewScene && (
                 <button
                   onClick={onClearPreviewScene}
+                  title="Return to Timeline (Esc)"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-xs text-slate-200 font-medium shadow-lg transition active:scale-95"
                 >
                   <X className="w-3.5 h-3.5 text-rose-400" />
@@ -159,6 +222,23 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                 </button>
               )}
             </div>
+
+            {/* Central Play/Pause Click Overlay for Highlight Video */}
+            {!isImg && (
+              <button
+                onClick={handleToggleHighlightPlay}
+                aria-label={isHighlightPlaying ? "Pause highlight video" : "Play highlight video"}
+                className="absolute inset-0 w-full h-full flex items-center justify-center bg-black/5 hover:bg-black/15 transition cursor-pointer"
+              >
+                <div className="w-14 h-14 rounded-full bg-slate-900/80 backdrop-blur border border-slate-700/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-200 hover:scale-110 shadow-xl">
+                  {isHighlightPlaying ? (
+                    <Pause className="w-6 h-6 text-slate-200" />
+                  ) : (
+                    <Play className="w-6 h-6 text-purple-400 ml-1" />
+                  )}
+                </div>
+              </button>
+            )}
 
             {/* Bottom HUD: Detailed Static Analysis Metrics Overlay */}
             <div className="absolute bottom-4 inset-x-4 bg-slate-950/90 backdrop-blur-md border border-purple-500/30 p-3 rounded-xl shadow-2xl z-10 pointer-events-auto">
@@ -187,14 +267,20 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                       <Zap className="w-3 h-3 text-emerald-400" />
                       Sharpness (Laplacian)
                     </span>
-                    <span className={`text-[10px] font-semibold px-1 rounded ${
-                      (previewScene.sharpness_score ?? 0) > 150
-                        ? "text-emerald-400 bg-emerald-950"
+                    <span
+                      className={`text-[10px] font-semibold px-1 rounded ${
+                        (previewScene.sharpness_score ?? 0) > 150
+                          ? "text-emerald-400 bg-emerald-950"
+                          : (previewScene.sharpness_score ?? 0) > 60
+                          ? "text-indigo-400 bg-indigo-950"
+                          : "text-slate-400 bg-slate-800"
+                      }`}
+                    >
+                      {(previewScene.sharpness_score ?? 0) > 150
+                        ? "Crisp / Detailed"
                         : (previewScene.sharpness_score ?? 0) > 60
-                        ? "text-indigo-400 bg-indigo-950"
-                        : "text-slate-400 bg-slate-800"
-                    }`}>
-                      {(previewScene.sharpness_score ?? 0) > 150 ? "Crisp / Detailed" : (previewScene.sharpness_score ?? 0) > 60 ? "Balanced" : "Soft"}
+                        ? "Balanced"
+                        : "Soft"}
                     </span>
                   </div>
                   <div className="text-base font-bold font-mono text-slate-100">
@@ -211,14 +297,20 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                       <Sun className="w-3 h-3 text-amber-400" />
                       Mean Luminance
                     </span>
-                    <span className={`text-[10px] font-semibold px-1 rounded ${
-                      (previewScene.brightness_score ?? 0) > 140
-                        ? "text-amber-400 bg-amber-950"
+                    <span
+                      className={`text-[10px] font-semibold px-1 rounded ${
+                        (previewScene.brightness_score ?? 0) > 140
+                          ? "text-amber-400 bg-amber-950"
+                          : (previewScene.brightness_score ?? 0) > 70
+                          ? "text-amber-300 bg-amber-950/60"
+                          : "text-slate-400 bg-slate-800"
+                      }`}
+                    >
+                      {(previewScene.brightness_score ?? 0) > 140
+                        ? "Bright / Well-Lit"
                         : (previewScene.brightness_score ?? 0) > 70
-                        ? "text-amber-300 bg-amber-950/60"
-                        : "text-slate-400 bg-slate-800"
-                    }`}>
-                      {(previewScene.brightness_score ?? 0) > 140 ? "Bright / Well-Lit" : (previewScene.brightness_score ?? 0) > 70 ? "Warm Exposure" : "Low Light"}
+                        ? "Warm Exposure"
+                        : "Low Light"}
                     </span>
                   </div>
                   <div className="text-base font-bold font-mono text-slate-100">
@@ -236,7 +328,11 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                       Motion Energy
                     </span>
                     <span className="text-[10px] font-semibold px-1 rounded text-cyan-400 bg-cyan-950">
-                      {isImg ? "Static Photo" : (previewScene.motion_score ?? 0) > 40 ? "High Action" : "Steady Shot"}
+                      {isImg
+                        ? "Static Photo"
+                        : (previewScene.motion_score ?? 0) > 40
+                        ? "High Action"
+                        : "Steady Shot"}
                     </span>
                   </div>
                   <div className="text-base font-bold font-mono text-slate-100">
@@ -264,7 +360,9 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
               <Play className="w-7 h-7 text-indigo-400 ml-1" />
             </div>
             <div className="text-sm font-medium text-slate-400">Montage & Video Preview Stage</div>
-            <div className="text-xs text-slate-600">Select any highlight on the left to inspect static analysis HUD</div>
+            <div className="text-xs text-slate-600">
+              Select any highlight on the left to inspect static analysis HUD
+            </div>
           </div>
         )}
 
@@ -334,11 +432,33 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
             <SkipBack className="w-4 h-4" />
           </button>
           <button
-            onClick={onPlayPause}
-            aria-label={isPlaying ? "Pause" : "Play"}
-            className="w-9 h-9 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:scale-95 flex items-center justify-center text-white shadow-md shadow-indigo-600/30 transition"
+            onClick={previewScene ? handleToggleHighlightPlay : onPlayPause}
+            aria-label={
+              previewScene
+                ? isHighlightPlaying
+                  ? "Pause"
+                  : "Play"
+                : isPlaying
+                ? "Pause"
+                : "Play"
+            }
+            className={`w-9 h-9 rounded-lg active:scale-95 flex items-center justify-center text-white shadow-md transition ${
+              previewScene
+                ? "bg-purple-600 hover:bg-purple-500 shadow-purple-600/30"
+                : "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30"
+            }`}
           >
-            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+            {previewScene ? (
+              isHighlightPlaying ? (
+                <Pause className="w-4 h-4" />
+              ) : (
+                <Play className="w-4 h-4 ml-0.5" />
+              )
+            ) : isPlaying ? (
+              <Pause className="w-4 h-4" />
+            ) : (
+              <Play className="w-4 h-4 ml-0.5" />
+            )}
           </button>
           <button
             onClick={handleStepForward}
@@ -350,9 +470,26 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
 
           {/* Timecode Readout */}
           <div className="ml-2 font-mono text-sm tracking-wider flex items-center gap-1.5 bg-slate-950 px-3 py-1 rounded-md border border-slate-800">
-            <span className="text-slate-100 font-semibold">{formatTimecode(currentTime)}</span>
-            <span className="text-slate-600">/</span>
-            <span className="text-slate-400">{formatTimecode(duration)}</span>
+            {previewScene ? (
+              <>
+                <span className="text-purple-300 font-semibold">
+                  {formatTimecode(highlightCurrentTime)}
+                </span>
+                <span className="text-slate-600">/</span>
+                <span className="text-slate-400">
+                  {formatTimecode(previewScene.duration || 0)}
+                </span>
+                <span className="text-[10px] text-purple-400 bg-purple-950 px-1.5 py-0.2 rounded border border-purple-800/60 ml-1">
+                  HIGHLIGHT
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="text-slate-100 font-semibold">{formatTimecode(currentTime)}</span>
+                <span className="text-slate-600">/</span>
+                <span className="text-slate-400">{formatTimecode(duration)}</span>
+              </>
+            )}
           </div>
 
           {/* Audio Volume Controls */}

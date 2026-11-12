@@ -180,7 +180,17 @@ export default function App() {
   };
 
   // Playback & Audio Controls
+  const handleSelectHighlightScene = (scene: SceneCut) => {
+    // Silence timeline soundtrack so the highlight video's native audio plays exclusively
+    audioEngine.stop();
+    setIsPlaying(false);
+    setPreviewScene(scene);
+  };
+
   const handleTogglePlayPause = () => {
+    if (previewScene) {
+      setPreviewScene(null);
+    }
     setIsPlaying((prev) => {
       const next = !prev;
       if (next) {
@@ -193,6 +203,9 @@ export default function App() {
   };
 
   const handleSeek = (time: number) => {
+    if (previewScene) {
+      setPreviewScene(null);
+    }
     setCurrentTime(time);
     audioEngine.seek(time);
     if (isPlaying) {
@@ -443,7 +456,7 @@ export default function App() {
               <HighlightsList
                 catalog={scenes}
                 activeScene={previewScene}
-                onSelectScene={(scene) => setPreviewScene(scene)}
+                onSelectScene={handleSelectHighlightScene}
               />
             </div>
           )}
@@ -537,7 +550,10 @@ export default function App() {
               currentTime={currentTime}
               duration={duration}
               selectedCutIndex={selectedCutIndex}
-              onSelectCut={(idx) => setSelectedCutIndex(idx)}
+              onSelectCut={(idx) => {
+                setPreviewScene(null);
+                setSelectedCutIndex(idx);
+              }}
               onSeek={handleSeek}
             />
           </div>
