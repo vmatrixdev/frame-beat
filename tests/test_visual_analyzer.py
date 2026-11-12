@@ -7,7 +7,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from engine.visual_analyzer import analyze_video, analyze_directory, compute_frame_metrics
+from engine.visual_analyzer import (
+    analyze_video,
+    analyze_directory,
+    analyze_image,
+    compute_frame_metrics,
+    IMAGE_EXTENSIONS,
+)
 from engine.models import ScenesCatalog, SceneCut
 from tests.fixtures import generate_synthetic_video
 
@@ -96,3 +102,40 @@ def test_analyze_directory_not_found(tmp_path: Path):
     """Verifies that analyzing a non-existent directory raises FileNotFoundError."""
     with pytest.raises(FileNotFoundError):
         analyze_directory(tmp_path / "non_existent_dir")
+
+
+def test_analyze_image(tmp_path: Path):
+    """Verifies still image analysis (JPG/PNG) for AMV visual inputs."""
+    import cv2
+    img_path = tmp_path / "anime_art.jpg"
+    thumb_dir = tmp_path / "img_thumbs"
+
+    # Create synthetic test image
+    img = np.zeros((720, 1280, 3), dtype=np.uint8)
+    cv2.rectangle(img, (200, 200), (600, 500), (0, 0, 255), -1)
+    cv2.circle(img, (900, 360), 150, (255, 255, 0), -1)
+    cv2.imwrite(str(img_path), img)
+
+    cut = analyze_image(img_path, output_thumbnail_dir=thumb_dir)
+    assert isinstance(cut, SceneCut)
+    assert cut.source_file == str(img_path.resolve())
+    assert cut.duration > 0
+    assert cut.start_time == 0.0
+    assert cut.keyframe_path is not None
+    assert Path(cut.keyframe_path).exists()
+    assert cut.sharpness_score is not None and cut.sharpness_score > 0
+    assert cut.brightness_score is not None and cut.brightness_score > 0
+
+
+def test_analyze_directory_with_images_and_videos(synthetic_video_dir: Path, tmp_path: Path):
+    """Verifies that analyze_directory seamlessly catalogs both video clips and still images."""
+    import cv2
+    # Add a PNG image into the directory
+    img_path = synthetic_video_dir / "wallpaper.png"
+    img = np.full((360, 640, 3), (120, 40, 200), dtype=np.uint8)
+    cv2.imwrite(str(img_path), img)
+
+    catalog = analyze_directory(synthetic_video_dir, output_thumbnail_dir=tmp_path / "mixed_thumbs")
+    assert catalog.total_scenes == 5 # 4 video scenes + 1 image cut
+    source_files = [Path(s).name for s in catalog.source_files]
+    assert "wallpaper.png" in source_files

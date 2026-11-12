@@ -134,9 +134,17 @@ def render_ffmpeg(
         if duration <= 0:
             duration = max(cut.source_out - cut.source_in, 0.1)
 
+        # Check if source file is a still image (JPG, PNG, WebP)
+        src_resolved = Path(cut.source_file).resolve()
+        src_ext = src_resolved.suffix.lower()
+        if src_ext in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+            inp = ffmpeg.input(str(src_resolved), loop=1, t=duration, framerate=fps)
+        else:
+            inp = ffmpeg.input(str(src_resolved), ss=in_point, t=duration)
+
         # Apply trim, setpts, scale, pad, setsar, and fps filters for deterministic alignment
         v_stream = (
-            ffmpeg.input(str(Path(cut.source_file).resolve()), ss=in_point, t=duration)
+            inp
             .filter("trim", duration=duration)
             .filter("setpts", "PTS-STARTPTS")
             .filter("scale", width, height, force_original_aspect_ratio="decrease")

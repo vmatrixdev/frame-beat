@@ -212,7 +212,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium truncate text-slate-200">
-                  {videoDir ? videoDir.split("/").pop() : "Select Source Videos Folder"}
+                  {videoDir ? videoDir.split("/").pop() : "Select Source Videos or Images"}
                 </span>
                 {videoDir && !isAnalyzingScenes && (
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -220,10 +220,10 @@ export const DropZones: React.FC<DropZonesProps> = ({
               </div>
               <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
                 {isAnalyzingScenes ? (
-                  <span className="text-purple-400 font-mono">Running PySceneDetect & Sharpness...</span>
+                  <span className="text-purple-400 font-mono">Running Scene Detect & Metrics...</span>
                 ) : videoDir ? (
                   <>
-                    <span>Folder source</span>
+                    <span>Media source</span>
                     {totalScenes !== undefined && (
                       <span className="text-purple-300 font-mono bg-purple-950/60 px-1.5 py-0.2 rounded border border-purple-800/50">
                         {totalScenes} scenes
@@ -231,7 +231,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
                     )}
                   </>
                 ) : (
-                  <span>Folder with MP4, MKV, MOV</span>
+                  <span>MP4, MKV, MOV, JPG, PNG</span>
                 )}
               </div>
             </div>
@@ -253,12 +253,12 @@ export const DropZones: React.FC<DropZonesProps> = ({
             type="file"
             ref={videoInputRef}
             multiple
-            accept="video/*,.mp4,.mkv,.mov,.avi,.webm"
+            accept="video/*,image/*,.mp4,.mkv,.mov,.avi,.webm,.jpg,.jpeg,.png,.webp"
             className="hidden"
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {
                 const count = e.target.files.length;
-                const label = count === 1 ? e.target.files[0].name : `${count} selected video clips`;
+                const label = count === 1 ? e.target.files[0].name : `${count} media items`;
                 onSelectVideoDir(label);
               }
             }}

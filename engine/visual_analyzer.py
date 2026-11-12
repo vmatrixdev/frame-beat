@@ -14,12 +14,59 @@ from scenedetect import open_video, SceneManager, ContentDetector
 from engine.models import SceneCut, ScenesCatalog
 
 
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
+
+
 def compute_frame_metrics(frame: np.ndarray) -> tuple[float, float]:
     """Computes Laplacian variance (sharpness) and average brightness."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     brightness = float(np.mean(gray))
     return round(sharpness, 2), round(brightness, 2)
+
+
+def analyze_image(
+    image_path: str | Path,
+    output_thumbnail_dir: str | Path = "cache/thumbnails",
+    default_duration: float = 8.0,
+) -> SceneCut:
+    """
+    Analyzes a still image (JPG, PNG, WebP) and produces a SceneCut.
+    Extracts metrics (sharpness, brightness) and saves a preview thumbnail.
+    """
+    image_path = Path(image_path)
+    if not image_path.exists():
+        raise FileNotFoundError(f"Image file not found: {image_path}")
+
+    output_dir = Path(output_thumbnail_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    frame = cv2.imread(str(image_path))
+    if frame is None:
+        raise ValueError(f"Could not read image file: {image_path}")
+
+    thumb_name = f"{image_path.stem}_img.jpg"
+    thumb_path = output_dir / thumb_name
+    h, w = frame.shape[:2]
+    target_w = 480
+    target_h = int(h * (target_w / w)) if w > 0 else h
+    resized = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+    cv2.imwrite(str(thumb_path), resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
+
+    sharpness, brightness = compute_frame_metrics(frame)
+
+    return SceneCut(
+        scene_id=0,
+        source_file=str(image_path.resolve()),
+        start_time=0.0,
+        end_time=round(default_duration, 3),
+        duration=round(default_duration, 3),
+        keyframe_path=str(thumb_path),
+        sharpness_score=sharpness,
+        motion_score=0.0,
+        brightness_score=brightness,
+    )
 
 
 def analyze_video(
@@ -119,21 +166,28 @@ def analyze_directory(
     if not video_dir.is_dir():
         raise NotADirectoryError(f"Path is not a directory: {video_dir}")
 
-    video_extensions = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
-    video_files = [f for f in video_dir.iterdir() if f.suffix.lower() in video_extensions]
+    media_extensions = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS
+    media_files = [f for f in video_dir.iterdir() if f.suffix.lower() in media_extensions]
 
     all_scenes: List[SceneCut] = []
     global_scene_id = 0
 
-    for v_file in sorted(video_files):
-        cuts = analyze_video(v_file, output_thumbnail_dir, detector_threshold=detector_threshold)
-        for cut in cuts:
+    for m_file in sorted(media_files):
+        ext = m_file.suffix.lower()
+        if ext in IMAGE_EXTENSIONS:
+            cut = analyze_image(m_file, output_thumbnail_dir)
             cut.scene_id = global_scene_id
             global_scene_id += 1
             all_scenes.append(cut)
+        else:
+            cuts = analyze_video(m_file, output_thumbnail_dir, detector_threshold=detector_threshold)
+            for cut in cuts:
+                cut.scene_id = global_scene_id
+                global_scene_id += 1
+                all_scenes.append(cut)
 
     return ScenesCatalog(
-        source_files=[str(f.resolve()) for f in sorted(video_files)],
+        source_files=[str(f.resolve()) for f in sorted(media_files)],
         total_scenes=len(all_scenes),
         scenes=all_scenes,
     )

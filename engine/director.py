@@ -163,7 +163,7 @@ def direct_amv(
     user_prompt: str,
     project_title: str = "AMV Project",
     api_key: Optional[str] = None,
-    model: str = "gemini-2.0-flash",
+    model: Optional[str] = None,
     target_audio: str = "soundtrack.wav",
     force_fallback: bool = False,
 ) -> Timeline:
@@ -173,6 +173,7 @@ def direct_amv(
     """
     load_dotenv_if_present()
     key = api_key or os.environ.get("GEMINI_API_KEY")
+    resolved_model = model or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 
     if force_fallback or not key:
         logger.info("GEMINI_API_KEY not configured or offline mode requested. Using deterministic director.")
@@ -213,7 +214,7 @@ def direct_amv(
         )
 
         response = client.models.generate_content(
-            model=model,
+            model=resolved_model,
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=DIRECTOR_SYSTEM_INSTRUCTION,

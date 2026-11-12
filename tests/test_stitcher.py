@@ -166,6 +166,53 @@ def test_render_ffmpeg_missing_files_error(tmp_path: Path):
         render_ffmpeg(missing_timeline, tmp_path / "out.mp4")
 
 
+def test_render_ffmpeg_with_still_image(synthetic_audio_path: Path, tmp_path: Path):
+    """Verify that FFmpeg stitcher seamlessly renders still images (JPG/PNG) into video cuts."""
+    if not find_ffmpeg_binary():
+        pytest.skip("ffmpeg not available")
+
+    import cv2
+    import numpy as np
+
+    # Generate a test image
+    img_path = tmp_path / "still_fanart.jpg"
+    img = np.zeros((360, 640, 3), dtype=np.uint8)
+    cv2.rectangle(img, (100, 100), (540, 260), (200, 50, 100), -1)
+    cv2.imwrite(str(img_path), img)
+
+    timeline = Timeline(
+        project_title="Image AMV Test",
+        target_audio=str(synthetic_audio_path),
+        cuts=[
+            TimelineCut(
+                source_file=str(img_path),
+                source_in=0.0,
+                source_out=2.0,
+                timeline_start=0.0,
+                timeline_end=2.0,
+                transition="cut",
+            )
+        ],
+    )
+
+    out_mp4 = tmp_path / "image_cut.mp4"
+    rendered = render_ffmpeg(
+        timeline,
+        out_mp4,
+        resolution=(640, 360),
+        fps=24.0,
+        hwaccel=False,
+    )
+    assert rendered.exists()
+    assert rendered.stat().st_size > 1000
+
+    probe = ffmpeg.probe(str(rendered))
+    v_stream = next(s for s in probe["streams"] if s["codec_type"] == "video")
+    assert v_stream["width"] == 640
+    assert v_stream["height"] == 360
+    assert float(probe["format"]["duration"]) >= 1.8
+
+
 def test_export_otio(synthetic_timeline: Timeline, tmp_path: Path):
     """Verify OpenTimelineIO export produces a valid .otio schema with accurate tracks and ranges."""
     if otio is None:
