@@ -62,6 +62,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isHighlightPlaying, setIsHighlightPlaying] = useState<boolean>(true);
   const [highlightCurrentTime, setHighlightCurrentTime] = useState<number>(0);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   const cuts = timeline?.cuts || [];
   const duration =
@@ -76,13 +77,22 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
 
   // Sync video element time and volume if previewing a scene section
   useEffect(() => {
+    setVideoError(null);
     if (previewScene && videoRef.current && !previewScene.is_still_image && previewScene.media_type !== "image") {
       videoRef.current.currentTime = previewScene.start_time;
       videoRef.current.volume = volume;
       videoRef.current.muted = isMuted;
       const playPromise = videoRef.current.play();
       if (playPromise && typeof playPromise.catch === "function") {
-        playPromise.catch(() => {});
+        playPromise.catch(() => {
+          if (videoRef.current) {
+            videoRef.current.muted = true;
+            const mutedPromise = videoRef.current.play();
+            if (mutedPromise && typeof mutedPromise.catch === "function") {
+              mutedPromise.catch(() => {});
+            }
+          }
+        });
       }
       setIsHighlightPlaying(true);
       setHighlightCurrentTime(0);
@@ -171,13 +181,25 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                 className="w-full h-full object-contain"
                 onLoadedMetadata={() => {
                   if (videoRef.current && previewScene) {
+                    setVideoError(null);
                     videoRef.current.currentTime = previewScene.start_time;
                     videoRef.current.volume = volume;
                     videoRef.current.muted = isMuted;
                     const p = videoRef.current.play();
-                    if (p && typeof p.catch === "function") p.catch(() => {});
+                    if (p && typeof p.catch === "function") {
+                      p.catch(() => {
+                        if (videoRef.current) {
+                          videoRef.current.muted = true;
+                          const mp = videoRef.current.play();
+                          if (mp && typeof mp.catch === "function") mp.catch(() => {});
+                        }
+                      });
+                    }
                     setIsHighlightPlaying(true);
                   }
+                }}
+                onError={() => {
+                  setVideoError(`Unable to stream video: ${previewScene.source_file}`);
                 }}
                 onTimeUpdate={() => {
                   if (videoRef.current && previewScene) {
@@ -195,6 +217,12 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                   }
                 }}
               />
+            )}
+
+            {videoError && (
+              <div className="absolute inset-x-6 top-16 z-20 px-3 py-2 rounded-lg bg-rose-950/90 border border-rose-500/60 text-rose-200 text-xs font-mono">
+                {videoError}
+              </div>
             )}
 
             {/* Top Bar Overlay: Highlight Tag & Return Action */}

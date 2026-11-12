@@ -170,6 +170,17 @@ class EngineClient {
         brightness_score: typeof cut.brightness_score === "number" ? cut.brightness_score : 100.0,
         media_type: isImg ? "image" : "video",
         is_still_image: isImg,
+        has_faces: typeof cut.has_faces === "boolean" ? cut.has_faces : undefined,
+        face_count: typeof cut.face_count === "number" ? cut.face_count : undefined,
+        dominant_expression: typeof cut.dominant_expression === "string" ? cut.dominant_expression : undefined,
+        smile_score: typeof cut.smile_score === "number" ? cut.smile_score : undefined,
+        subject_prominence:
+          cut.subject_prominence === "close_up" ||
+          cut.subject_prominence === "medium_shot" ||
+          cut.subject_prominence === "wide_shot" ||
+          cut.subject_prominence === "scenic"
+            ? cut.subject_prominence
+            : undefined,
       };
     });
 
@@ -193,7 +204,42 @@ class EngineClient {
    */
   async analyzeScenes(videoDir: string, thumbsDir?: string, files?: File[]): Promise<ScenesCatalog> {
     if (this.isMockMode) {
-      // 1. Try real Python PySceneDetect engine via Vite Dev Server API if given a filesystem directory path
+      // 1. If browser files were dropped/selected, upload them into cache/library/<batchId> and run real Python analysis
+      if (files && files.length > 0) {
+        try {
+          const batchId = `batch_${Date.now()}`;
+          let batchDir = "";
+          for (const file of files) {
+            const upRes = await fetch(
+              `/api/upload-library-file?batchId=${encodeURIComponent(batchId)}&filename=${encodeURIComponent(file.name)}`,
+              {
+                method: "POST",
+                body: file,
+              }
+            );
+            if (!upRes.ok) {
+              throw new Error(`Upload failed for ${file.name}: ${upRes.status}`);
+            }
+            const upData = (await upRes.json()) as { batchDir?: string };
+            if (upData.batchDir) batchDir = upData.batchDir;
+          }
+          if (batchDir) {
+            const res = await fetch("/api/analyze-scenes", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ dirPath: batchDir, thumbsDir: thumbsDir || "cache/thumbnails" }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              return this.normalizeCatalogThumbnails(data as ScenesCatalog);
+            }
+          }
+        } catch (e) {
+          console.warn("Dev server upload & scene analysis failed, using fallback:", e);
+        }
+      }
+
+      // 2. Try real Python PySceneDetect engine via Vite Dev Server API if given a filesystem directory path
       const isDirPath = videoDir.includes("/") || videoDir.startsWith("~") || videoDir.includes("\\");
       if (isDirPath) {
         try {

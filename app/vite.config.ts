@@ -10,6 +10,41 @@ function amvEngineVitePlugin(): Plugin {
   return {
     name: "amv-engine-dev-api",
     configureServer(server) {
+      // Stream uploaded browser-dropped files into cache/library/<batchId>/<filename>
+      server.middlewares.use("/api/upload-library-file", (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          return res.end();
+        }
+        try {
+          const urlObj = new URL(req.url || "", "http://localhost:1420");
+          const rawBatch = urlObj.searchParams.get("batchId") || "default";
+          const rawName = urlObj.searchParams.get("filename") || "media.bin";
+          const safeBatch = rawBatch.replace(/[^a-zA-Z0-9_-]/g, "_");
+          const safeName = path.basename(rawName).replace(/[/\\]/g, "_");
+
+          const projectRoot = path.resolve(__dirname, "..");
+          const batchDir = path.join(projectRoot, "cache", "library", safeBatch);
+          fs.mkdirSync(batchDir, { recursive: true });
+          const destPath = path.join(batchDir, safeName);
+
+          const writeStream = fs.createWriteStream(destPath);
+          req.pipe(writeStream);
+          writeStream.on("finish", () => {
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ ok: true, path: destPath, batchDir }));
+          });
+          writeStream.on("error", (err) => {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: err.message }));
+          });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: msg }));
+        }
+      });
+
       // API to run scene detection on any local directory path
       server.middlewares.use("/api/analyze-scenes", (req, res) => {
         if (req.method !== "POST") {
@@ -55,9 +90,11 @@ function amvEngineVitePlugin(): Plugin {
             proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
 
             proc.on("close", (code: number) => {
-              if (code === 0 && stdout.trim()) {
+              const jsonStart = stdout.indexOf("{");
+              const cleanJson = jsonStart >= 0 ? stdout.slice(jsonStart) : "";
+              if (code === 0 && cleanJson.trim()) {
                 res.setHeader("Content-Type", "application/json");
-                res.end(stdout);
+                res.end(cleanJson);
               } else {
                 res.statusCode = 500;
                 res.end(JSON.stringify({ error: stderr || "Scene analysis failed" }));
