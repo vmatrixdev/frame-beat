@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import { Music, Film, Sparkles, CheckCircle2, Loader2, FolderOpen, RefreshCw } from "lucide-react";
 
 export interface DropZonesProps {
@@ -28,9 +28,12 @@ export const DropZones: React.FC<DropZonesProps> = ({
 }) => {
   const audioInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingAudio, setIsDraggingAudio] = useState(false);
+  const [isDraggingVideo, setIsDraggingVideo] = useState(false);
 
   const handleAudioDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    setIsDraggingAudio(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
       onSelectAudio(file.name, file);
@@ -39,11 +42,14 @@ export const DropZones: React.FC<DropZonesProps> = ({
 
   const handleVideoDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    setIsDraggingVideo(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const files = Array.from(e.dataTransfer.files);
       const dirName = files[0].webkitRelativePath
         ? files[0].webkitRelativePath.split("/")[0]
-        : "anime_raws_folder";
+        : files.length > 1
+        ? `${files.length} video clips`
+        : files[0].name;
       onSelectVideoDir(dirName);
     }
   };
@@ -75,7 +81,11 @@ export const DropZones: React.FC<DropZonesProps> = ({
         {/* Audio Track Drop Zone */}
         <div
           data-testid="audio-drop-zone"
-          onDragOver={(e) => e.preventDefault()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDraggingAudio(true);
+          }}
+          onDragLeave={() => setIsDraggingAudio(false)}
           onDrop={handleAudioDrop}
           onClick={() => {
             audioInputRef.current?.click();
@@ -84,7 +94,9 @@ export const DropZones: React.FC<DropZonesProps> = ({
             }
           }}
           className={`p-3.5 rounded-xl border transition cursor-pointer relative overflow-hidden group ${
-            audioFile
+            isDraggingAudio
+              ? "border-indigo-400 bg-indigo-950/60 ring-2 ring-indigo-500 scale-[1.01]"
+              : audioFile
               ? "border-indigo-500/50 bg-indigo-950/20"
               : "border-dashed border-slate-700 hover:border-indigo-500 bg-slate-900/40"
           }`}
@@ -160,15 +172,22 @@ export const DropZones: React.FC<DropZonesProps> = ({
         {/* Video Directory Drop Zone */}
         <div
           data-testid="video-drop-zone"
-          onDragOver={(e) => e.preventDefault()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDraggingVideo(true);
+          }}
+          onDragLeave={() => setIsDraggingVideo(false)}
           onDrop={handleVideoDrop}
           onClick={() => {
+            videoInputRef.current?.click();
             if (!videoDir) {
               onSelectVideoDir("anime_raws_1080p");
             }
           }}
           className={`p-3.5 rounded-xl border transition cursor-pointer relative overflow-hidden group ${
-            videoDir
+            isDraggingVideo
+              ? "border-purple-400 bg-purple-950/60 ring-2 ring-purple-500 scale-[1.01]"
+              : videoDir
               ? "border-purple-500/50 bg-purple-950/20"
               : "border-dashed border-slate-700 hover:border-purple-500 bg-slate-900/40"
           }`}
@@ -233,11 +252,15 @@ export const DropZones: React.FC<DropZonesProps> = ({
           <input
             type="file"
             ref={videoInputRef}
-            // @ts-expect-error webkitdirectory attribute
-            webkitdirectory="true"
+            multiple
+            accept="video/*"
             className="hidden"
             onChange={(e) => {
-              if (e.target.files?.[0]) onSelectVideoDir("anime_raws_custom");
+              if (e.target.files && e.target.files.length > 0) {
+                const count = e.target.files.length;
+                const label = count === 1 ? e.target.files[0].name : `${count} selected video clips`;
+                onSelectVideoDir(label);
+              }
             }}
           />
         </div>
