@@ -161,7 +161,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
           <input
             type="file"
             ref={audioInputRef}
-            accept="audio/*"
+            accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus"
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.[0]) onSelectAudio(e.target.files[0].name, e.target.files[0]);
@@ -253,7 +253,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
             type="file"
             ref={videoInputRef}
             multiple
-            accept="video/*"
+            accept="video/*,.mp4,.mkv,.mov,.avi,.webm"
             className="hidden"
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {
