@@ -184,12 +184,13 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
                   const isExpanded = Boolean(expandedFiles[group.sourceFile]);
                   const isRawActive =
                     activeScene?.scene_id === -1 && activeScene.source_file === group.sourceFile;
+                  const thumbUrl = group.cuts[0]?.keyframe_path;
 
                   return (
                     <div key={group.sourceFile}>
                       <div
                         onClick={() => handleSelectRawVideo(group)}
-                        className={`flex items-center gap-1 px-1.5 py-1 rounded-md cursor-pointer transition text-[11px] ${
+                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded-md cursor-pointer transition text-[11px] ${
                           isRawActive
                             ? "bg-purple-950/70 text-purple-200 border border-purple-500/40"
                             : "text-slate-300 hover:bg-slate-900/90"
@@ -207,12 +208,22 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
                             <ChevronRight className="w-3 h-3" />
                           )}
                         </button>
-                        <Film className="w-3 h-3 text-purple-400 shrink-0" />
-                        <span className="truncate font-mono flex-1">{group.filename}</span>
+                        <div className="w-10 h-7 rounded bg-slate-900 border border-slate-800 overflow-hidden shrink-0 flex items-center justify-center">
+                          {thumbUrl ? (
+                            <img src={thumbUrl} alt={group.filename} className="w-full h-full object-cover" />
+                          ) : (
+                            <Film className="w-3.5 h-3.5 text-purple-400" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-mono text-[11px]">{group.filename}</div>
+                          <div className="text-[9px] font-mono text-slate-500 flex items-center gap-1.5">
+                            <span>{group.totalDuration.toFixed(1)}s</span>
+                            <span>•</span>
+                            <span>{group.cuts.length} {group.cuts.length === 1 ? "cut" : "cuts"}</span>
+                          </div>
+                        </div>
                         {group.hasFaces && <Smile className="w-3 h-3 text-rose-400 shrink-0" />}
-                        <span className="text-[10px] font-mono text-slate-500 shrink-0">
-                          {group.cuts.length}c
-                        </span>
                       </div>
 
                       {isExpanded && (
@@ -226,14 +237,22 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
                                 key={`${cut.scene_id}-${cut.start_time}`}
                                 type="button"
                                 onClick={() => onSelectScene(cut)}
-                                className={`w-full flex items-center justify-between gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono transition ${
+                                className={`w-full flex items-center justify-between gap-1.5 px-1.5 py-0.5 rounded text-[10px] font-mono transition ${
                                   isCutActive
                                     ? "bg-indigo-600/30 text-indigo-200"
                                     : "text-slate-400 hover:bg-slate-900 hover:text-slate-200"
                                 }`}
                               >
-                                <span className="flex items-center gap-1 truncate">
-                                  <Play className="w-2.5 h-2.5 text-purple-400 shrink-0" />
+                                <span className="flex items-center gap-1.5 truncate">
+                                  {cut.keyframe_path ? (
+                                    <img
+                                      src={cut.keyframe_path}
+                                      alt={`Cut ${cut.scene_id + 1}`}
+                                      className="w-7 h-5 rounded object-cover border border-slate-800 shrink-0"
+                                    />
+                                  ) : (
+                                    <Play className="w-2.5 h-2.5 text-purple-400 shrink-0" />
+                                  )}
                                   #{cut.scene_id + 1} ({cut.start_time.toFixed(1)}s–{cut.end_time.toFixed(1)}s)
                                 </span>
                                 <span className="text-slate-500 shrink-0">{cut.duration.toFixed(1)}s</span>
@@ -277,18 +296,22 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
                   const isActive =
                     activeScene?.scene_id === photo.scene_id &&
                     activeScene.source_file === photo.source_file;
+                  const thumbUrl =
+                    photo.keyframe_path || `/api/media-stream?path=${encodeURIComponent(photo.source_file)}`;
                   return (
                     <button
                       key={`${photo.scene_id}-${photo.source_file}`}
                       type="button"
                       onClick={() => onSelectScene(photo)}
-                      className={`w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-left text-[11px] transition ${
+                      className={`w-full flex items-center gap-2 px-1.5 py-1 rounded-md text-left text-[11px] transition ${
                         isActive
                           ? "bg-emerald-950/60 text-emerald-200 border border-emerald-500/40"
                           : "text-slate-300 hover:bg-slate-900"
                       }`}
                     >
-                      <ImageIcon className="w-3 h-3 text-emerald-400 shrink-0" />
+                      <div className="w-9 h-7 rounded bg-slate-900 border border-slate-800 overflow-hidden shrink-0 flex items-center justify-center">
+                        <img src={thumbUrl} alt={filename} className="w-full h-full object-cover" />
+                      </div>
                       <span className="truncate font-mono flex-1">{filename}</span>
                       {photo.has_faces && (
                         <span className="text-[10px] text-rose-300 flex items-center gap-0.5 shrink-0">
