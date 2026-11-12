@@ -20,6 +20,7 @@ import {
   generateProceduralTimeline,
   generateBeatsForDuration,
 } from "./mockData";
+import { analyzeAudioFileInBrowser } from "./audioEngine";
 
 export interface EngineClientConfig {
   forceMock?: boolean;
@@ -56,9 +57,32 @@ class EngineClient {
   /**
    * Run media analysis on an audio soundtrack file.
    */
-  async analyzeSoundtrack(audioPath: string, durationSec?: number): Promise<BeatsData> {
+  async analyzeSoundtrack(audioPath: string, durationSec?: number, audioFile?: File): Promise<BeatsData> {
     if (this.isMockMode) {
-      // Simulate realistic analysis delay (150ms)
+      // 1. Try real Python engine via Vite Dev Server API if file is provided
+      if (audioFile) {
+        try {
+          const res = await fetch("/api/analyze-soundtrack", {
+            method: "POST",
+            body: audioFile,
+          });
+          if (res.ok) {
+            const data = await res.json();
+            return data as BeatsData;
+          }
+        } catch {
+          // Dev server endpoint unreachable; fall through to browser Web Audio
+        }
+
+        // 2. Real Web Audio API decoding in browser (extracts real RMS energy across PCM samples)
+        try {
+          return await analyzeAudioFileInBrowser(audioFile);
+        } catch (e) {
+          console.warn("Browser Web Audio decoding failed, using synthetic beats:", e);
+        }
+      }
+
+      // 3. Fallback for demo fixtures
       await new Promise((resolve) => setTimeout(resolve, 150));
       if (durationSec && durationSec > 0) {
         return generateBeatsForDuration(durationSec, 128.0);

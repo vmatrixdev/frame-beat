@@ -72,7 +72,7 @@ export default function App() {
 
     setIsAnalyzingAudio(true);
     try {
-      const beatsResult = await engineClient.analyzeSoundtrack(path, detectedDuration);
+      const beatsResult = await engineClient.analyzeSoundtrack(path, detectedDuration, file);
       setBeats(beatsResult);
       if (!file) {
         audioEngine.setSyntheticBeats(beatsResult);
