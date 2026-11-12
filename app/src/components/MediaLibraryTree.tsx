@@ -237,6 +237,11 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
                   return (
                     <div key={group.sourceFile}>
                       <div
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("application/x-amv-scene", JSON.stringify(buildRawScene()));
+                          e.dataTransfer.effectAllowed = "copy";
+                        }}
                         onClick={() => handleSelectRawVideo(group)}
                         onContextMenu={(e) => openContextMenu(e, buildRawScene())}
                         className={`flex items-center gap-1.5 px-1.5 py-1 rounded-md cursor-pointer transition text-[11px] group ${
@@ -293,6 +298,11 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
                               <button
                                 key={`${cut.scene_id}-${cut.start_time}`}
                                 type="button"
+                                draggable
+                                onDragStart={(e) => {
+                                  e.dataTransfer.setData("application/x-amv-scene", JSON.stringify(cut));
+                                  e.dataTransfer.effectAllowed = "copy";
+                                }}
                                 onClick={() => onSelectScene(cut)}
                                 onContextMenu={(e) => openContextMenu(e, cut)}
                                 className={`w-full flex items-center justify-between gap-1.5 px-1.5 py-0.5 rounded text-[10px] font-mono transition ${
@@ -360,6 +370,11 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
                     <button
                       key={`${photo.scene_id}-${photo.source_file}`}
                       type="button"
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("application/x-amv-scene", JSON.stringify(photo));
+                        e.dataTransfer.effectAllowed = "copy";
+                      }}
                       onClick={() => onSelectScene(photo)}
                       onContextMenu={(e) => openContextMenu(e, photo)}
                       className={`w-full flex items-center gap-2 px-1.5 py-1 rounded-md text-left text-[11px] transition group ${

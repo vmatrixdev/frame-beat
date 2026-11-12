@@ -157,3 +157,24 @@ def test_analyze_directory_with_images_and_videos(synthetic_video_dir: Path, tmp
     assert catalog.total_scenes == 5 # 4 video scenes + 1 image cut
     source_files = [Path(s).name for s in catalog.source_files]
     assert "wallpaper.png" in source_files
+
+
+def test_analyze_single_segment_custom_range(synthetic_video_path: Path, tmp_path: Path):
+    """Verifies on-demand single-segment analysis with configurable sampling."""
+    from engine.visual_analyzer import analyze_single_segment
+
+    cut = analyze_single_segment(
+        source_path=synthetic_video_path,
+        start_time=1.0,
+        end_time=3.5,
+        sample_frames=8,
+        output_thumbnail_dir=tmp_path / "seg_thumbs",
+        scene_id=7,
+    )
+    assert cut.scene_id == 7
+    assert pytest.approx(cut.start_time, abs=0.05) == 1.0
+    assert pytest.approx(cut.end_time, abs=0.05) == 3.5
+    assert pytest.approx(cut.duration, abs=0.05) == 2.5
+    assert cut.keyframe_path is not None and Path(cut.keyframe_path).exists()
+    assert cut.sharpness_score is not None
+    assert cut.brightness_score is not None

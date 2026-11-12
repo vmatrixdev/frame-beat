@@ -155,6 +155,11 @@ export const HighlightsList: React.FC<HighlightsListProps> = ({
           return (
             <div
               key={`${scene.scene_id}-${scene.source_file}`}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("application/x-amv-scene", JSON.stringify(scene));
+                e.dataTransfer.effectAllowed = "copy";
+              }}
               onClick={() => onSelectScene(scene)}
               className={`p-2 rounded-xl border transition cursor-pointer flex gap-2.5 items-center group relative overflow-hidden ${
                 isSelected

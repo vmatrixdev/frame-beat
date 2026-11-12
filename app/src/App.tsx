@@ -10,8 +10,19 @@ import {
   FolderOpen,
   ZoomIn,
   ZoomOut,
+  Plus,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
-import type { BeatsData, ScenesCatalog, Timeline, SceneCut } from "./types/schemas";
+import type {
+  AudioTrackItem,
+  BeatsData,
+  ScenesCatalog,
+  Timeline,
+  TimelineCut,
+  SceneCut,
+} from "./types/schemas";
+import { buildCutFromScene } from "./utils/timelineEditor";
 import { engineClient, isTauriEnvironment } from "./services/engineClient";
 import { audioEngine } from "./services/audioEngine";
 import { DropZones } from "./components/DropZones";
@@ -57,6 +68,11 @@ export default function App() {
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [selectedCutIndex, setSelectedCutIndex] = useState<number | null>(null);
   const [timelineZoom, setTimelineZoom] = useState<number>(1.0);
+  const [videoTrackCount, setVideoTrackCount] = useState<number>(1);
+  const [activeVideoTrack, setActiveVideoTrack] = useState<number>(0);
+  const [audioTracks, setAudioTracks] = useState<AudioTrackItem[]>([]);
+  const [activeAudioTrackId, setActiveAudioTrackId] = useState<string | null>(null);
+  const extraAudioInputRef = useRef<HTMLInputElement>(null);
 
   // Export Modal state
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
@@ -66,13 +82,13 @@ export default function App() {
   const lastTimeRef = useRef<number | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
-  const duration =
-    timeline?.cuts.length
-      ? timeline.cuts[timeline.cuts.length - 1].timeline_end
-      : beats?.duration_sec || 16.0;
+  const maxCutEnd = timeline?.cuts.length
+    ? timeline.cuts.reduce((acc, c) => Math.max(acc, c.timeline_end), 0)
+    : 0;
+  const duration = Math.max(maxCutEnd, beats?.duration_sec || 0, 16.0);
 
-  // Handle Audio Selection & Analysis
-  const handleSelectAudio = async (path: string, file?: File) => {
+  // Handle Audio Selection & Analysis (Primary or Additional Audio Track)
+  const handleSelectAudio = async (path: string, file?: File, appendNewTrack = false) => {
     setAudioFile(path);
     let detectedDuration: number | undefined = undefined;
 
@@ -88,6 +104,24 @@ export default function App() {
       if (!file) {
         audioEngine.setSyntheticBeats(beatsResult);
       }
+
+      const trackId = `audio_${Date.now()}`;
+      const newTrack: AudioTrackItem = {
+        id: trackId,
+        name: path.split("/").pop() || path,
+        audioFile: path,
+        beats: beatsResult,
+        muted: false,
+        solo: false,
+      };
+
+      setAudioTracks((prev) => {
+        if (!appendNewTrack && prev.length > 0) {
+          return [{ ...newTrack, id: prev[0].id }, ...prev.slice(1)];
+        }
+        return [...prev, newTrack];
+      });
+      setActiveAudioTrackId((prevId) => (appendNewTrack || !prevId ? trackId : prevId));
     } catch (err) {
       console.error("Audio analysis failed:", err);
     } finally {
@@ -166,25 +200,17 @@ export default function App() {
 
   // Manual Timeline Setup: Append a highlight, photo, or raw video onto the timeline
   const handleAddSceneToTimeline = (scene: SceneCut) => {
-    const isImg = scene.is_still_image || scene.media_type === "image";
-    const clipDuration = isImg ? 3.0 : scene.duration > 0 ? scene.duration : 4.0;
-    const sourceIn = scene.scene_id < 0 ? 0.0 : scene.start_time;
-    const sourceOut = Number((sourceIn + clipDuration).toFixed(3));
-
     setTimeline((prev) => {
       const existingCuts = prev?.cuts || [];
+      const trackCuts = existingCuts.filter((c) => (c.track_index ?? 0) === activeVideoTrack);
       const timelineStart =
-        existingCuts.length > 0 ? existingCuts[existingCuts.length - 1].timeline_end : 0.0;
-      const timelineEnd = Number((timelineStart + clipDuration).toFixed(3));
-      const newCut = {
-        source_file: scene.source_file,
-        source_in: sourceIn,
-        source_out: sourceOut,
-        timeline_start: timelineStart,
-        timeline_end: timelineEnd,
-        transition: (existingCuts.length > 0 ? "crossfade" : "cut") as "cut" | "crossfade",
-        keyframe_path: scene.keyframe_path,
-      };
+        trackCuts.length > 0 ? trackCuts[trackCuts.length - 1].timeline_end : 0.0;
+      const newCut = buildCutFromScene(
+        scene,
+        timelineStart,
+        activeVideoTrack,
+        trackCuts.length > 0 ? "crossfade" : "cut"
+      );
       return {
         project_title: prev?.project_title || projectTitle,
         target_audio: prev?.target_audio || audioFile || "soundtrack",
@@ -192,6 +218,31 @@ export default function App() {
       };
     });
     setPreviewScene(null);
+  };
+
+  // Drag-and-drop scene directly onto a specific timeline track and timestamp
+  const handleDropSceneOnTimeline = (
+    scene: SceneCut,
+    timelineStart: number,
+    trackIndex: number
+  ) => {
+    const newCut = buildCutFromScene(scene, timelineStart, trackIndex, "cut");
+    setTimeline((prev) => ({
+      project_title: prev?.project_title || projectTitle,
+      target_audio: prev?.target_audio || audioFile || "soundtrack",
+      cuts: [...(prev?.cuts || []), newCut],
+    }));
+    setActiveVideoTrack(trackIndex);
+    setPreviewScene(null);
+  };
+
+  // Update cuts from TimelineTrack (drag move, edge trim, split, transition cycle)
+  const handleUpdateTimelineCuts = (updatedCuts: TimelineCut[]) => {
+    setTimeline((prev) => ({
+      project_title: prev?.project_title || projectTitle,
+      target_audio: prev?.target_audio || audioFile || "soundtrack",
+      cuts: updatedCuts,
+    }));
   };
 
   // Remove a cut from the timeline and re-pack subsequent cuts
@@ -620,24 +671,45 @@ export default function App() {
             </div>
           </div>
 
-          {/* Bottom Docked Timeline Drawer */}
-          <div className="h-64 border-t border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-2.5 shrink-0">
-            {/* Header / Info bar + Unified Timeline Zoom */}
-            <div className="flex items-center justify-between text-xs text-slate-400 px-1">
-              <div className="flex items-center gap-4">
+          {/* Bottom Docked Multi-Track Timeline Drawer */}
+          <div className="min-h-[270px] max-h-[340px] border-t border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-2.5 shrink-0 overflow-y-auto">
+            {/* Header / Info bar + Audio Track Adder + Unified Timeline Zoom */}
+            <div className="flex items-center justify-between text-xs text-slate-400 px-1 flex-wrap gap-2">
+              <div className="flex items-center gap-3">
                 <span className="font-semibold text-slate-200">
-                  {timeline ? timeline.project_title : "No Active Timeline"}
+                  {timeline ? timeline.project_title : "Manual / AI Timeline"}
                 </span>
                 {beats && (
                   <>
                     <span className="font-mono text-indigo-300">
-                      Tempo: {beats.tempo_bpm.toFixed(1)} BPM
+                      {beats.tempo_bpm.toFixed(1)} BPM
                     </span>
-                    <span className="font-mono text-slate-400">
-                      Time Sig: {beats.time_signature}
+                    <span className="font-mono text-slate-500">
+                      {beats.time_signature}
                     </span>
                   </>
                 )}
+                <button
+                  type="button"
+                  onClick={() => extraAudioInputRef.current?.click()}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-medium text-indigo-300 border border-slate-700 transition"
+                  title="Add another audio track (A2, A3...) to compare music versions"
+                >
+                  <Plus className="w-3 h-3" />
+                  Audio Track
+                </button>
+                <input
+                  type="file"
+                  ref={extraAudioInputRef}
+                  accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) {
+                      handleSelectAudio(e.target.files[0].name, e.target.files[0], true);
+                      e.target.value = "";
+                    }
+                  }}
+                />
               </div>
 
               <div className="flex items-center gap-4">
@@ -681,33 +753,97 @@ export default function App() {
               </div>
             </div>
 
-            {/* Unified Horizontally Scrollable Timeline Viewport (Waveform + Video Cuts Zoom Together) */}
-            <div className="flex-1 overflow-x-auto overflow-y-hidden pr-1">
+            {/* Unified Horizontally Scrollable Timeline Viewport (Multi-Track Audio + Multi-Track Video Zoom Together) */}
+            <div className="flex-1 overflow-x-auto overflow-y-visible pr-1">
               <div
                 style={{ width: `${timelineZoom * 100}%`, minWidth: "100%" }}
                 className="flex flex-col gap-2"
               >
-                {/* Waveform Visualizer */}
-                <WaveformVisualizer
-                  beatsData={beats}
-                  currentTime={currentTime}
-                  duration={duration}
-                  zoomLevel={timelineZoom}
-                  onSeek={handleSeek}
-                />
+                {/* Multi-Track Audio Waveforms (A1, A2...) */}
+                {audioTracks.length > 0 ? (
+                  audioTracks.map((aTrack, aIdx) => {
+                    const isActiveAudio = aTrack.id === activeAudioTrackId;
+                    return (
+                      <div key={aTrack.id} className="relative">
+                        <div className="flex items-center gap-1.5 mb-1 px-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveAudioTrackId(aTrack.id);
+                              setAudioFile(aTrack.audioFile);
+                              if (aTrack.beats) setBeats(aTrack.beats);
+                            }}
+                            className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border transition ${
+                              isActiveAudio
+                                ? "bg-indigo-600 text-white border-indigo-400"
+                                : "bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200"
+                            }`}
+                            title="Set as active soundtrack for beat markers & AI Director"
+                          >
+                            A{aIdx + 1}
+                          </button>
+                          <span className="text-[10px] font-mono text-slate-400 truncate max-w-[200px]">
+                            {aTrack.name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setAudioTracks((prev) =>
+                                prev.map((t) =>
+                                  t.id === aTrack.id ? { ...t, muted: !t.muted } : t
+                                )
+                              )
+                            }
+                            className="p-0.5 rounded hover:bg-slate-800 text-slate-400"
+                            title={aTrack.muted ? "Unmute Track" : "Mute Track"}
+                          >
+                            {aTrack.muted ? (
+                              <VolumeX className="w-3 h-3 text-rose-400" />
+                            ) : (
+                              <Volume2 className="w-3 h-3 text-indigo-400" />
+                            )}
+                          </button>
+                        </div>
+                        <WaveformVisualizer
+                          beatsData={aTrack.beats}
+                          currentTime={currentTime}
+                          duration={duration}
+                          zoomLevel={timelineZoom}
+                          onSeek={handleSeek}
+                          className={aTrack.muted ? "opacity-40" : ""}
+                        />
+                      </div>
+                    );
+                  })
+                ) : (
+                  <WaveformVisualizer
+                    beatsData={beats}
+                    currentTime={currentTime}
+                    duration={duration}
+                    zoomLevel={timelineZoom}
+                    onSeek={handleSeek}
+                  />
+                )}
 
-                {/* Cuts Track */}
+                {/* Multi-Track Video Cuts Editor (V1, V2...) */}
                 <TimelineTrack
                   timeline={timeline}
                   currentTime={currentTime}
                   duration={duration}
                   zoomLevel={timelineZoom}
+                  beats={beats}
+                  videoTrackCount={videoTrackCount}
+                  activeVideoTrack={activeVideoTrack}
+                  onSelectVideoTrack={setActiveVideoTrack}
+                  onAddVideoTrack={() => setVideoTrackCount((n) => n + 1)}
                   selectedCutIndex={selectedCutIndex}
                   onSelectCut={(idx) => {
                     setPreviewScene(null);
                     setSelectedCutIndex(idx);
                   }}
                   onRemoveCut={handleRemoveTimelineCut}
+                  onUpdateCuts={handleUpdateTimelineCuts}
+                  onDropScene={handleDropSceneOnTimeline}
                   onSeek={handleSeek}
                 />
               </div>

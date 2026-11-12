@@ -58,6 +58,16 @@ export interface TimelineCut {
   pacing_beat_interval?: number;
   scene_id?: number;
   keyframe_path?: string;
+  track_index?: number;
+}
+
+export interface AudioTrackItem {
+  id: string;
+  name: string;
+  audioFile: string;
+  beats: BeatsData | null;
+  muted: boolean;
+  solo: boolean;
 }
 
 export interface Timeline {

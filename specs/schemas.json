@@ -98,7 +98,8 @@
           "enum": ["cut", "crossfade", "flash_white", "zoom_in", "whip_pan"],
           "description": "Transition effect into this cut" 
         },
-        "pacing_beat_interval": { "type": "integer", "description": "Cuts synchronized every N beats" }
+        "pacing_beat_interval": { "type": "integer", "description": "Cuts synchronized every N beats" },
+        "track_index": { "type": "integer", "description": "Video track index (0 = V1, 1 = V2, etc.)" }
       }
     },
     "Timeline": {

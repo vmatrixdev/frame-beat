@@ -72,6 +72,9 @@ class TimelineCut(BaseModel):
     pacing_beat_interval: Optional[int] = Field(
         default=4, description="Cuts synchronized every N beats"
     )
+    track_index: Optional[int] = Field(
+        default=0, description="Video track index (0 = V1, 1 = V2, etc.)"
+    )
 
 
 class Timeline(BaseModel):
