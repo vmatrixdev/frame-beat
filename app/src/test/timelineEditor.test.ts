@@ -8,6 +8,8 @@ import {
   duplicateCutToTrack,
   buildCutFromScene,
   snapToBeat,
+  computeZoomAnchor,
+  computeZoomScrollLeft,
 } from "../utils/timelineEditor";
 import type { BeatsData, SceneCut, TimelineCut } from "../types/schemas";
 
@@ -115,5 +117,25 @@ describe("NLE timelineEditor utilities", () => {
     expect(built.source_in).toBe(1.0);
     expect(built.source_out).toBe(5.0);
     expect(built.track_index).toBe(1);
+  });
+
+  it("anchors timeline zoom at the mouse cursor position", () => {
+    // Zooming in from 1x (width 1000) to 2x (width 2000) with cursor at x=700
+    const anchorIn = computeZoomAnchor(0, 1000, 1000, 700);
+    expect(anchorIn.mouseXInViewport).toBe(700);
+    expect(anchorIn.ratio).toBeCloseTo(0.7);
+    const scrollAfterIn = computeZoomScrollLeft(anchorIn, 2000, 1000);
+    expect(scrollAfterIn).toBeCloseTo(700);
+    expect((scrollAfterIn + 700) / 2000).toBeCloseTo(0.7);
+
+    // Zooming out from 2.25x (width 2250, scroll 875) to 2x (width 2000) with cursor at x=300
+    const anchorOut = computeZoomAnchor(875, 1000, 2250, 300);
+    const scrollAfterOut = computeZoomScrollLeft(anchorOut, 2000, 1000);
+    expect((scrollAfterOut + 300) / 2000).toBeCloseTo((875 + 300) / 2250);
+
+    // Clamps pointer outside viewport and clamps scrollLeft to [0, maxScroll]
+    const clampedAnchor = computeZoomAnchor(0, 1000, 1000, -25);
+    expect(clampedAnchor.mouseXInViewport).toBe(0);
+    expect(computeZoomScrollLeft(clampedAnchor, 1000, 1000)).toBe(0);
   });
 });

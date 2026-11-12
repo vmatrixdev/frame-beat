@@ -258,3 +258,40 @@ export function duplicateCutToTrack(
     },
   ];
 }
+
+export interface ZoomAnchor {
+  mouseXInViewport: number;
+  ratio: number;
+}
+
+/**
+ * Captures the horizontal content ratio under the pointer so zooming keeps
+ * the pointed timeline position anchored under the cursor.
+ */
+export function computeZoomAnchor(
+  scrollLeft: number,
+  viewportWidth: number,
+  contentWidth: number,
+  pointerOffsetX: number
+): ZoomAnchor {
+  const clampedX = Math.max(0, Math.min(viewportWidth, pointerOffsetX));
+  const safeContentWidth = Math.max(1, contentWidth);
+  return {
+    mouseXInViewport: clampedX,
+    ratio: (scrollLeft + clampedX) / safeContentWidth,
+  };
+}
+
+/**
+ * Computes the new scrollLeft after a zoom change so `anchor` remains at
+ * `anchor.mouseXInViewport` inside the viewport.
+ */
+export function computeZoomScrollLeft(
+  anchor: ZoomAnchor,
+  newContentWidth: number,
+  viewportWidth: number
+): number {
+  const maxScroll = Math.max(0, newContentWidth - viewportWidth);
+  const target = anchor.ratio * newContentWidth - anchor.mouseXInViewport;
+  return Math.max(0, Math.min(maxScroll, target));
+}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import {
   Download,
   Layers,
@@ -20,7 +20,13 @@ import type {
   TimelineCut,
   SceneCut,
 } from "./types/schemas";
-import { buildCutFromScene, splitCutAtTime } from "./utils/timelineEditor";
+import {
+  buildCutFromScene,
+  computeZoomAnchor,
+  computeZoomScrollLeft,
+  splitCutAtTime,
+  type ZoomAnchor,
+} from "./utils/timelineEditor";
 import { engineClient, isTauriEnvironment } from "./services/engineClient";
 import { audioEngine } from "./services/audioEngine";
 import { DropZones } from "./components/DropZones";
@@ -71,6 +77,20 @@ export default function App() {
   const [audioTracks, setAudioTracks] = useState<AudioTrackItem[]>([]);
   const [activeAudioTrackId, setActiveAudioTrackId] = useState<string | null>(null);
   const extraAudioInputRef = useRef<HTMLInputElement>(null);
+  const timelineScrollRef = useRef<HTMLDivElement>(null);
+  const pendingZoomAnchorRef = useRef<ZoomAnchor | null>(null);
+
+  useLayoutEffect(() => {
+    const anchor = pendingZoomAnchorRef.current;
+    const scrollEl = timelineScrollRef.current;
+    if (!anchor || !scrollEl) return;
+    pendingZoomAnchorRef.current = null;
+    scrollEl.scrollLeft = computeZoomScrollLeft(
+      anchor,
+      scrollEl.scrollWidth,
+      scrollEl.clientWidth
+    );
+  }, [timelineZoom]);
 
   // Resizable Layout Panels state
   const [sidebarWidth, setSidebarWidth] = useState<number>(384);
@@ -737,9 +757,20 @@ export default function App() {
                 const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
                 if (delta !== 0) {
                   const step = delta < 0 ? 0.25 : -0.25;
-                  setTimelineZoom((z) =>
-                    Math.max(1.0, Math.min(8.0, Number((z + step).toFixed(2))))
-                  );
+                  const scrollEl = timelineScrollRef.current;
+                  const anchor = scrollEl
+                    ? computeZoomAnchor(
+                        scrollEl.scrollLeft,
+                        scrollEl.clientWidth,
+                        scrollEl.scrollWidth,
+                        e.clientX - scrollEl.getBoundingClientRect().left
+                      )
+                    : null;
+                  setTimelineZoom((z) => {
+                    const next = Math.max(1.0, Math.min(8.0, Number((z + step).toFixed(2))));
+                    pendingZoomAnchorRef.current = next !== z ? anchor : null;
+                    return next;
+                  });
                 }
               }
             }}
@@ -813,7 +844,7 @@ export default function App() {
             </div>
 
             {/* Unified Horizontally Scrollable Timeline Viewport (Multi-Track Audio + Multi-Track Video Zoom Together) */}
-            <div className="flex-1 overflow-x-auto overflow-y-visible pr-1">
+            <div ref={timelineScrollRef} className="flex-1 overflow-x-auto overflow-y-visible pr-1">
               <div
                 style={{ width: `${timelineZoom * 100}%`, minWidth: "100%" }}
                 className="flex flex-col gap-2"
