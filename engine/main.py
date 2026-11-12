@@ -18,9 +18,12 @@ from rich.console import Console
 
 from engine.audio_analyzer import analyze_audio
 from engine.visual_analyzer import analyze_directory
-from engine.director import direct_amv
+from engine.director import direct_amv, load_dotenv_if_present
 from engine.stitcher import render_ffmpeg, export_project, RenderProgress
 from engine.models import BeatsData, ScenesCatalog, Timeline
+
+# Auto-load environment variables from .env if present
+load_dotenv_if_present()
 
 app = typer.Typer(help="AMV Maker Engine - Media analysis, Director, and Stitcher")
 console = Console()

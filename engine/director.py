@@ -8,11 +8,35 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 from typing import List, Optional
 
 from engine.models import BeatsData, ScenesCatalog, Timeline, TimelineCut
 
 logger = logging.getLogger(__name__)
+
+
+def load_dotenv_if_present() -> None:
+    """Loads environment variables from .env if present in CWD or project root."""
+    candidate_paths = [
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parent.parent / ".env",
+    ]
+    for env_path in candidate_paths:
+        if env_path.is_file():
+            try:
+                for line in env_path.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip("'\"")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+            except Exception as e:
+                logger.debug(f"Failed to read .env from {env_path}: {e}")
+            break
 
 DIRECTOR_SYSTEM_INSTRUCTION = """
 You are the AI Director for an Anime Music Video (AMV) Maker.
@@ -147,6 +171,7 @@ def direct_amv(
     Calls Gemini structured output API to generate an AMV cut timeline.
     If GEMINI_API_KEY is not set or API call fails, falls back to deterministic offline director.
     """
+    load_dotenv_if_present()
     key = api_key or os.environ.get("GEMINI_API_KEY")
 
     if force_fallback or not key:
