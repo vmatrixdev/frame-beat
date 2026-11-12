@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { DEMO_BEATS, DEMO_SCENES, DEMO_TIMELINE } from "../services/mockData";
+import { engineClient } from "../services/engineClient";
 import type {
   BeatsData,
   ScenesCatalog,
@@ -88,5 +89,37 @@ describe("Schema Validation (specs/schemas.json Contracts)", () => {
 
       expect(VALID_TRANSITIONS).toContain(cut.transition);
     });
+  });
+
+  it("validates engineClient.importScenesCatalog parsing and normalizing arbitrary catalogs", () => {
+    const rawJson = JSON.stringify({
+      source_files: ["/path/to/img1.jpg", "/path/to/video1.mp4"],
+      total_scenes: 2,
+      scenes: [
+        {
+          scene_id: 0,
+          source_file: "/path/to/img1.jpg",
+          duration: 0.0,
+          is_still_image: true,
+          media_type: "image",
+          keyframe_path: "/var/folders/cache/thumbnails/img1.jpg",
+        },
+        {
+          scene_id: 1,
+          source_file: "/path/to/video1.mp4",
+          start_time: 0.0,
+          end_time: 4.5,
+          duration: 4.5,
+          keyframe_path: "cache/thumbnails/video1.jpg",
+        },
+      ],
+    });
+
+    const catalog = engineClient.importScenesCatalog(rawJson);
+    expect(catalog.total_scenes).toBe(2);
+    expect(catalog.scenes[0].media_type).toBe("image");
+    expect(catalog.scenes[0].is_still_image).toBe(true);
+    expect(catalog.scenes[0].keyframe_path).toBe("/cache/thumbnails/img1.jpg");
+    expect(catalog.scenes[1].keyframe_path).toBe("/cache/thumbnails/video1.jpg");
   });
 });

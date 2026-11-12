@@ -111,10 +111,106 @@ class EngineClient {
   }
 
   /**
+   * Normalize catalog keyframe thumbnail paths for web display.
+   */
+  public normalizeCatalogThumbnails(catalog: ScenesCatalog): ScenesCatalog {
+    return {
+      ...catalog,
+      scenes: (catalog.scenes || []).map((s) => ({
+        ...s,
+        keyframe_path: s.keyframe_path
+          ? s.keyframe_path.startsWith("blob:") || s.keyframe_path.startsWith("http")
+            ? s.keyframe_path
+            : `/cache/thumbnails/${s.keyframe_path.split(/[\\/]/).pop()}`
+          : undefined,
+      })),
+    };
+  }
+
+  /**
+   * Parse, validate, and normalize an existing ScenesCatalog JSON string or object.
+   */
+  public importScenesCatalog(jsonContent: string | unknown): ScenesCatalog {
+    let data: unknown;
+    if (typeof jsonContent === "string") {
+      try {
+        data = JSON.parse(jsonContent);
+      } catch (e) {
+        throw new Error(`Invalid JSON syntax in scenes catalog: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } else {
+      data = jsonContent;
+    }
+
+    if (!data || typeof data !== "object") {
+      throw new Error("Invalid scenes catalog: root must be a JSON object");
+    }
+
+    const rawScenes = (data as { scenes?: unknown }).scenes;
+    if (!Array.isArray(rawScenes) || rawScenes.length === 0) {
+      throw new Error("Invalid scenes catalog: 'scenes' array is missing or empty");
+    }
+
+    const scenes: SceneCut[] = rawScenes.map((rawCut, idx) => {
+      const cut = rawCut as Record<string, unknown>;
+      const isImg =
+        cut.is_still_image === true ||
+        cut.media_type === "image" ||
+        (typeof cut.source_file === "string" && /\.(jpg|jpeg|png|webp)$/i.test(cut.source_file));
+
+      return {
+        scene_id: typeof cut.scene_id === "number" ? cut.scene_id : idx,
+        source_file: String(cut.source_file || `clip_${idx}`),
+        start_time: typeof cut.start_time === "number" ? cut.start_time : 0.0,
+        end_time: typeof cut.end_time === "number" ? cut.end_time : isImg ? 0.0 : 8.0,
+        duration: typeof cut.duration === "number" ? cut.duration : isImg ? 0.0 : 8.0,
+        keyframe_path: cut.keyframe_path ? String(cut.keyframe_path) : undefined,
+        sharpness_score: typeof cut.sharpness_score === "number" ? cut.sharpness_score : 100.0,
+        motion_score: typeof cut.motion_score === "number" ? cut.motion_score : isImg ? 0.0 : 50.0,
+        brightness_score: typeof cut.brightness_score === "number" ? cut.brightness_score : 100.0,
+        media_type: isImg ? "image" : "video",
+        is_still_image: isImg,
+      };
+    });
+
+    const sourceFiles = Array.isArray((data as { source_files?: unknown }).source_files)
+      ? ((data as { source_files: unknown[] }).source_files.map(String))
+      : Array.from(new Set(scenes.map((s) => s.source_file)));
+
+    const catalog: ScenesCatalog = {
+      source_files: sourceFiles,
+      total_scenes: typeof (data as { total_scenes?: unknown }).total_scenes === "number"
+        ? (data as { total_scenes: number }).total_scenes
+        : scenes.length,
+      scenes,
+    };
+
+    return this.normalizeCatalogThumbnails(catalog);
+  }
+
+  /**
    * Run scene detection & keyframe extraction on source videos directory.
    */
   async analyzeScenes(videoDir: string, thumbsDir?: string, files?: File[]): Promise<ScenesCatalog> {
     if (this.isMockMode) {
+      // 1. Try real Python PySceneDetect engine via Vite Dev Server API if given a filesystem directory path
+      const isDirPath = videoDir.includes("/") || videoDir.startsWith("~") || videoDir.includes("\\");
+      if (isDirPath) {
+        try {
+          const res = await fetch("/api/analyze-scenes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dirPath: videoDir, thumbsDir: thumbsDir || "cache/thumbnails" }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            return this.normalizeCatalogThumbnails(data as ScenesCatalog);
+          }
+        } catch (e) {
+          console.warn("Dev server scene analysis failed, using fallback:", e);
+        }
+      }
+
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       if (files && files.length > 0) {
@@ -126,12 +222,14 @@ class EngineClient {
             scene_id: idx,
             source_file: file.name,
             start_time: 0.0,
-            end_time: 8.0,
-            duration: 8.0,
+            end_time: isImage ? 0.0 : 8.0,
+            duration: isImage ? 0.0 : 8.0,
             keyframe_path: keyframeUrl,
             sharpness_score: 110 + (idx % 6) * 15,
             motion_score: isImage ? 0 : 35 + (idx % 4) * 20,
             brightness_score: 95 + (idx % 5) * 25,
+            media_type: isImage ? "image" : "video",
+            is_still_image: isImage,
           };
         });
 

@@ -98,26 +98,35 @@ export default function App() {
     }
   };
 
-  // Load Pre-Analyzed PySceneDetect Scenes (personal_scenes.json)
-  const handleLoadAnalyzedScenes = async () => {
+  // Import Pre-Analyzed PySceneDetect Scenes Catalog JSON
+  const handleImportScenesCatalog = async (file: File) => {
+    setIsAnalyzingScenes(true);
     try {
-      const res = await fetch("/api/get-analyzed-scenes");
-      if (res.ok) {
-        const data = await res.json();
-        const adjustedScenes = {
-          ...data,
-          scenes: data.scenes.map((s: { keyframe_path?: string }) => ({
-            ...s,
-            keyframe_path: s.keyframe_path
-              ? `/cache/thumbnails/${s.keyframe_path.split("/").pop()}`
-              : undefined,
-          })),
-        };
-        setScenes(adjustedScenes);
-        setVideoDir("Photos-1-001");
-      }
+      const text = await file.text();
+      const catalog = engineClient.importScenesCatalog(text);
+      setScenes(catalog);
+      setVideoDir(file.name);
     } catch (err) {
-      console.error("Failed to load analyzed scenes:", err);
+      console.error("Failed to import scenes catalog:", err);
+      alert(err instanceof Error ? err.message : "Failed to import scenes catalog JSON");
+    } finally {
+      setIsAnalyzingScenes(false);
+    }
+  };
+
+  // Run PySceneDetect on any local filesystem directory path
+  const handleAnalyzeDirectoryPath = async (dirPath: string) => {
+    if (!dirPath.trim()) return;
+    setIsAnalyzingScenes(true);
+    setVideoDir(dirPath);
+    try {
+      const catalog = await engineClient.analyzeScenes(dirPath);
+      setScenes(catalog);
+    } catch (err) {
+      console.error("Failed to analyze directory:", err);
+      alert(`Directory analysis failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsAnalyzingScenes(false);
     }
   };
 
@@ -343,7 +352,8 @@ export default function App() {
               onSelectAudio={handleSelectAudio}
               onSelectVideoDir={handleSelectVideoDir}
               onLoadDemoFixtures={handleLoadDemoFixtures}
-              onLoadAnalyzedScenes={handleLoadAnalyzedScenes}
+              onImportScenesCatalog={handleImportScenesCatalog}
+              onAnalyzeDirectoryPath={handleAnalyzeDirectoryPath}
             />
           </div>
 

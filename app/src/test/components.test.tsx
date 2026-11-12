@@ -52,6 +52,26 @@ describe("React UI Components", () => {
       expect(screen.getByText("16.0s")).toBeInTheDocument();
       expect(screen.getByText("6 scenes")).toBeInTheDocument();
     });
+
+    it("renders import catalog button and accepts scenes catalog json files", () => {
+      const handleImportCatalog = vi.fn();
+      render(
+        <DropZones
+          audioFile={null}
+          videoDir={null}
+          onSelectAudio={vi.fn()}
+          onSelectVideoDir={vi.fn()}
+          onLoadDemoFixtures={vi.fn()}
+          onImportScenesCatalog={handleImportCatalog}
+          onAnalyzeDirectoryPath={vi.fn()}
+        />
+      );
+
+      const importBtn = screen.getByTestId("import-catalog-button");
+      expect(importBtn).toBeInTheDocument();
+      expect(screen.getByText("Import Catalog (.json)")).toBeInTheDocument();
+      expect(screen.getByText("Analyze Folder...")).toBeInTheDocument();
+    });
   });
 
   describe("WaveformVisualizer Component", () => {
