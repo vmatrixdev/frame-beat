@@ -7,6 +7,7 @@
 import type {
   BeatsData,
   ScenesCatalog,
+  SceneCut,
   Timeline,
   RenderOptions,
   RenderProgress,
@@ -112,9 +113,35 @@ class EngineClient {
   /**
    * Run scene detection & keyframe extraction on source videos directory.
    */
-  async analyzeScenes(videoDir: string, thumbsDir?: string): Promise<ScenesCatalog> {
+  async analyzeScenes(videoDir: string, thumbsDir?: string, files?: File[]): Promise<ScenesCatalog> {
     if (this.isMockMode) {
       await new Promise((resolve) => setTimeout(resolve, 200));
+
+      if (files && files.length > 0) {
+        const scenes: SceneCut[] = files.map((file, idx) => {
+          const isImage = file.type.startsWith("image/") || /\.(jpg|jpeg|png|webp)$/i.test(file.name);
+          const keyframeUrl = isImage ? URL.createObjectURL(file) : undefined;
+
+          return {
+            scene_id: idx,
+            source_file: file.name,
+            start_time: 0.0,
+            end_time: 8.0,
+            duration: 8.0,
+            keyframe_path: keyframeUrl,
+            sharpness_score: 110 + (idx % 6) * 15,
+            motion_score: isImage ? 0 : 35 + (idx % 4) * 20,
+            brightness_score: 95 + (idx % 5) * 25,
+          };
+        });
+
+        return {
+          source_files: files.map((f) => f.name),
+          total_scenes: files.length,
+          scenes,
+        };
+      }
+
       return {
         ...DEMO_SCENES,
       };

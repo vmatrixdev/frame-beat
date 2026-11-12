@@ -85,11 +85,11 @@ export default function App() {
   };
 
   // Handle Video Selection & Scene Detection
-  const handleSelectVideoDir = async (dir: string) => {
+  const handleSelectVideoDir = async (dir: string, files?: File[]) => {
     setVideoDir(dir);
     setIsAnalyzingScenes(true);
     try {
-      const scenesResult = await engineClient.analyzeScenes(dir);
+      const scenesResult = await engineClient.analyzeScenes(dir, undefined, files);
       setScenes(scenesResult);
     } catch (err) {
       console.error("Scene analysis failed:", err);

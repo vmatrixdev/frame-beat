@@ -10,7 +10,7 @@ export interface DropZonesProps {
   audioBpm?: number;
   totalScenes?: number;
   onSelectAudio: (path: string, file?: File) => void;
-  onSelectVideoDir: (path: string) => void;
+  onSelectVideoDir: (path: string, files?: File[]) => void;
   onLoadDemoFixtures: () => void;
 }
 
@@ -48,9 +48,9 @@ export const DropZones: React.FC<DropZonesProps> = ({
       const dirName = files[0].webkitRelativePath
         ? files[0].webkitRelativePath.split("/")[0]
         : files.length > 1
-        ? `${files.length} video clips`
+        ? `${files.length} media items`
         : files[0].name;
-      onSelectVideoDir(dirName);
+      onSelectVideoDir(dirName, files);
     }
   };
 
@@ -257,9 +257,10 @@ export const DropZones: React.FC<DropZonesProps> = ({
             className="hidden"
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {
-                const count = e.target.files.length;
-                const label = count === 1 ? e.target.files[0].name : `${count} media items`;
-                onSelectVideoDir(label);
+                const files = Array.from(e.target.files);
+                const count = files.length;
+                const label = count === 1 ? files[0].name : `${count} media items`;
+                onSelectVideoDir(label, files);
               }
             }}
           />
