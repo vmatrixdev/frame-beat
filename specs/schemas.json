@@ -55,7 +55,16 @@
         "keyframe_path": { "type": "string", "description": "Relative/absolute path to thumbnail keyframe image" },
         "sharpness_score": { "type": "number", "description": "Laplacian variance measure of frame sharpness" },
         "motion_score": { "type": "number", "description": "Estimated motion/activity score" },
-        "brightness_score": { "type": "number", "description": "Average frame brightness (0-255)" }
+        "brightness_score": { "type": "number", "description": "Average frame brightness (0-255)" },
+        "has_faces": { "type": "boolean", "description": "True if one or more faces detected" },
+        "face_count": { "type": "integer", "description": "Number of faces detected in keyframe" },
+        "dominant_expression": { "type": "string", "description": "Detected facial expression" },
+        "smile_score": { "type": "number", "description": "Smile confidence score (0.0 to 1.0)" },
+        "subject_prominence": {
+          "type": "string",
+          "enum": ["close_up", "medium_shot", "wide_shot", "scenic"],
+          "description": "Subject framing prominence"
+        }
       }
     },
     "ScenesCatalog": {

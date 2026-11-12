@@ -188,6 +188,11 @@ describe("React UI Components", () => {
         sharpness_score: 245.8,
         brightness_score: 130.5,
         motion_score: 42.1,
+        has_faces: true,
+        face_count: 2,
+        dominant_expression: "joyful / smiling",
+        smile_score: 0.86,
+        subject_prominence: "close_up" as const,
       };
 
       render(
@@ -211,6 +216,9 @@ describe("React UI Components", () => {
       expect(screen.getByText("245.8")).toBeInTheDocument();
       expect(screen.getByText("130.5 / 255")).toBeInTheDocument();
       expect(screen.getByText("42.1")).toBeInTheDocument();
+      expect(screen.getByText("Subject & Emotion")).toBeInTheDocument();
+      expect(screen.getByText("joyful / smiling (86%)")).toBeInTheDocument();
+      expect(screen.getByText("2 Faces • close up")).toBeInTheDocument();
 
       // Return to timeline
       const returnBtn = screen.getByText("Return to Timeline");
@@ -247,6 +255,11 @@ describe("React UI Components", () => {
             is_still_image: true,
             sharpness_score: 95.0,
             brightness_score: 140.0,
+            has_faces: true,
+            face_count: 1,
+            dominant_expression: "joyful / smiling",
+            smile_score: 0.78,
+            subject_prominence: "medium_shot" as const,
           },
         ],
       };
@@ -261,6 +274,13 @@ describe("React UI Components", () => {
 
       expect(screen.getByText("2 items (1 videos • 1 photos)")).toBeInTheDocument();
       expect(screen.getByText("#1 • clip1.mp4")).toBeInTheDocument();
+      expect(screen.getByText("#2 • photo1.jpg")).toBeInTheDocument();
+      expect(screen.getByText("Faces (1)")).toBeInTheDocument();
+      expect(screen.getByText("joyful 78%")).toBeInTheDocument();
+
+      // Filter by Faces
+      fireEvent.click(screen.getByText("Faces (1)"));
+      expect(screen.queryByText("#1 • clip1.mp4")).not.toBeInTheDocument();
       expect(screen.getByText("#2 • photo1.jpg")).toBeInTheDocument();
 
       // Click photo item to select

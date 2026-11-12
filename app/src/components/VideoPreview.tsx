@@ -14,6 +14,7 @@ import {
   Sun,
   Eye,
   X,
+  Smile,
 } from "lucide-react";
 
 export interface VideoPreviewProps {
@@ -259,7 +260,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
               </div>
 
               {/* Metric Cards Grid */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {/* Sharpness (Laplacian Variance) */}
                 <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800 flex flex-col gap-0.5">
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
@@ -341,6 +342,37 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                       : previewScene.motion_score !== null && previewScene.motion_score !== undefined
                       ? previewScene.motion_score.toFixed(1)
                       : "PySceneDetect Cut"}
+                  </div>
+                </div>
+
+                {/* Subject & Facial Emotion */}
+                <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800 flex flex-col gap-0.5">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                    <span className="flex items-center gap-1">
+                      <Smile className="w-3 h-3 text-rose-400" />
+                      Subject & Emotion
+                    </span>
+                    <span className="text-[10px] font-semibold px-1 rounded text-rose-300 bg-rose-950/70">
+                      {previewScene.has_faces
+                        ? `${previewScene.face_count ?? 1} Face${(previewScene.face_count ?? 1) > 1 ? "s" : ""} • ${
+                            previewScene.subject_prominence ? previewScene.subject_prominence.replace("_", " ") : "subject"
+                          }`
+                        : previewScene.subject_prominence
+                        ? previewScene.subject_prominence.replace("_", " ")
+                        : "Scenic"}
+                    </span>
+                  </div>
+                  <div className="text-sm font-bold font-mono text-slate-100 truncate">
+                    {previewScene.has_faces ? (
+                      <span>
+                        {previewScene.dominant_expression ?? "Neutral"}
+                        {previewScene.smile_score !== null && previewScene.smile_score !== undefined
+                          ? ` (${Math.round(previewScene.smile_score * 100)}%)`
+                          : ""}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 font-normal">No Faces Detected</span>
+                    )}
                   </div>
                 </div>
               </div>

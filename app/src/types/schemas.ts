@@ -33,6 +33,11 @@ export interface SceneCut {
   sharpness_score?: number;
   motion_score?: number;
   brightness_score?: number;
+  has_faces?: boolean;
+  face_count?: number;
+  dominant_expression?: string;
+  smile_score?: number;
+  subject_prominence?: "close_up" | "medium_shot" | "wide_shot" | "scenic";
 }
 
 export interface ScenesCatalog {

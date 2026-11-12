@@ -60,8 +60,10 @@ Core Directing Rules:
 3. Media Type Handling:
    - Still Images (media_type == "image" or is_still_image == True): Static photos have elastic duration! They can hold for multi-measure emotional portraits (e.g. 2.0s-4.0s) during quiet verses, or flash rhythmically on downbeats. Set source_in = 0.0 and source_out = (timeline_end - timeline_start).
    - Video Clips (media_type == "video"): Respect the clip's physical source bounds. Ensure source_out <= clip.end_time and (source_out - source_in) == (timeline_end - timeline_start).
-4. Visual Quality & Focus:
-   - Use sharpness and brightness scores intelligently: place the clearest, highest-sharpness portraits and climax scenes during musical peaks and chorus lines.
+4. Visual Quality, Facial Emotions & Subject Prominence:
+   - Use sharpness, brightness, and local facial analysis fields (`has_faces`, `face_count`, `dominant_expression`, `smile_score`, `subject_prominence`) intelligently:
+   - For Weddings, Family, Birthdays & Milestones: Place `joyful / smiling` or `laughing / ecstatic` `close_up` portraits on emotional chorus peaks and downbeats. Use `scenic` or `wide_shot` establishing shots for intros and transitions.
+   - Place the clearest, highest-sharpness scenes during musical climaxes.
 5. Continuity & Pacing:
    - The timeline must seamlessly cover from 0.0 seconds to music_profile.duration_sec with zero gaps and zero overlaps.
    - Avoid monotonous repetitions of the exact same shot consecutively.
@@ -157,6 +159,15 @@ def direct_amv_deterministic(
         key=lambda s: s.brightness_score if s.brightness_score is not None else 0.0,
         reverse=True,
     )
+    scenes_by_emotion = sorted(
+        catalog.scenes,
+        key=lambda s: (
+            1 if s.has_faces else 0,
+            s.smile_score if s.smile_score is not None else 0.0,
+            s.brightness_score if s.brightness_score is not None else 0.0,
+        ),
+        reverse=True,
+    )
 
     cuts: List[TimelineCut] = []
     scene_idx = 0
@@ -179,10 +190,10 @@ def direct_amv_deterministic(
 
         # Select scene and transition based on genre and energy level
         if is_emotional:
-            # Weddings, family memories, children growing: soft crossfades and warm visuals
+            # Weddings, family memories, children growing: prioritize smiling faces & warm visuals with soft crossfades
             chosen_scene = (
-                scenes_by_brightness[scene_idx % len(scenes_by_brightness)]
-                if scenes_by_brightness
+                scenes_by_emotion[scene_idx % len(scenes_by_emotion)]
+                if scenes_by_emotion
                 else catalog.scenes[scene_idx % len(catalog.scenes)]
             )
             transition = "crossfade" if i > 0 else "cut"
@@ -277,6 +288,11 @@ def direct_amv(
                     "brightness": s.brightness_score,
                     "media_type": s.media_type,
                     "is_still_image": s.is_still_image,
+                    "has_faces": s.has_faces,
+                    "face_count": s.face_count,
+                    "dominant_expression": s.dominant_expression,
+                    "smile_score": s.smile_score,
+                    "subject_prominence": s.subject_prominence,
                 }
                 for s in catalog.scenes
             ],

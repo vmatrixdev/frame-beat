@@ -12,6 +12,7 @@ import numpy as np
 from scenedetect import open_video, SceneManager, ContentDetector
 
 from engine.models import SceneCut, ScenesCatalog
+from engine.face_analyzer import analyze_frame_semantics
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -55,6 +56,7 @@ def analyze_image(
     cv2.imwrite(str(thumb_path), resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
     sharpness, brightness = compute_frame_metrics(frame)
+    semantics = analyze_frame_semantics(frame)
 
     return SceneCut(
         scene_id=0,
@@ -68,6 +70,11 @@ def analyze_image(
         sharpness_score=sharpness,
         motion_score=0.0,
         brightness_score=brightness,
+        has_faces=semantics["has_faces"],
+        face_count=semantics["face_count"],
+        dominant_expression=semantics["dominant_expression"],
+        smile_score=semantics["smile_score"],
+        subject_prominence=semantics["subject_prominence"],
     )
 
 
@@ -123,6 +130,13 @@ def analyze_video(
 
         thumb_path_str = None
         sharpness, brightness = None, None
+        semantics = {
+            "has_faces": False,
+            "face_count": 0,
+            "dominant_expression": None,
+            "smile_score": None,
+            "subject_prominence": "scenic",
+        }
 
         if ret and frame is not None:
             thumb_name = f"{video_path.stem}_scene_{idx:04d}.jpg"
@@ -135,6 +149,7 @@ def analyze_video(
             cv2.imwrite(str(thumb_path), resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
             thumb_path_str = str(thumb_path)
             sharpness, brightness = compute_frame_metrics(frame)
+            semantics = analyze_frame_semantics(frame)
 
         scene_cuts.append(
             SceneCut(
@@ -147,6 +162,11 @@ def analyze_video(
                 sharpness_score=sharpness,
                 motion_score=None,
                 brightness_score=brightness,
+                has_faces=semantics["has_faces"],
+                face_count=semantics["face_count"],
+                dominant_expression=semantics["dominant_expression"],
+                smile_score=semantics["smile_score"],
+                subject_prominence=semantics["subject_prominence"],
             )
         )
 

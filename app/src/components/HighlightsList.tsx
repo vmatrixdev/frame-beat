@@ -8,6 +8,7 @@ import {
   Search,
   Filter,
   Play,
+  Smile,
 } from "lucide-react";
 
 export interface HighlightsListProps {
@@ -21,7 +22,7 @@ export const HighlightsList: React.FC<HighlightsListProps> = ({
   activeScene,
   onSelectScene,
 }) => {
-  const [filterType, setFilterType] = useState<"all" | "video" | "image">("all");
+  const [filterType, setFilterType] = useState<"all" | "video" | "image" | "faces">("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [sortBy, setSortBy] = useState<"index" | "sharpness" | "brightness">("index");
 
@@ -33,6 +34,7 @@ export const HighlightsList: React.FC<HighlightsListProps> = ({
         const isImg = s.is_still_image || s.media_type === "image";
         if (filterType === "video" && isImg) return false;
         if (filterType === "image" && !isImg) return false;
+        if (filterType === "faces" && !s.has_faces) return false;
         if (searchQuery.trim()) {
           const fname = s.source_file.split("/").pop() || "";
           return fname.toLowerCase().includes(searchQuery.toLowerCase());
@@ -52,6 +54,7 @@ export const HighlightsList: React.FC<HighlightsListProps> = ({
 
   const videoCount = scenes.filter((s) => !s.is_still_image && s.media_type !== "image").length;
   const imageCount = scenes.filter((s) => s.is_still_image || s.media_type === "image").length;
+  const faceCount = scenes.filter((s) => Boolean(s.has_faces)).length;
 
   if (scenes.length === 0) {
     return (
@@ -114,6 +117,14 @@ export const HighlightsList: React.FC<HighlightsListProps> = ({
               }`}
             >
               Photos ({imageCount})
+            </button>
+            <button
+              onClick={() => setFilterType("faces")}
+              className={`px-2 py-0.5 rounded transition ${
+                filterType === "faces" ? "bg-rose-600 text-white font-medium" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Faces ({faceCount})
             </button>
           </div>
 
@@ -228,6 +239,23 @@ export const HighlightsList: React.FC<HighlightsListProps> = ({
                     >
                       <Activity className="w-2.5 h-2.5" />
                       {scene.motion_score.toFixed(0)}
+                    </span>
+                  )}
+
+                  {scene.has_faces && (
+                    <span
+                      title={`Faces: ${scene.face_count ?? 1} • ${scene.subject_prominence ?? "subject"} • ${scene.dominant_expression ?? "detected"}`}
+                      className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-rose-950/50 border border-rose-800/60 text-rose-300 truncate max-w-[140px]"
+                    >
+                      <Smile className="w-2.5 h-2.5 shrink-0" />
+                      <span className="truncate">
+                        {scene.dominant_expression
+                          ? scene.dominant_expression.split(" / ")[0]
+                          : `${scene.face_count ?? 1} face`}
+                        {scene.smile_score !== null && scene.smile_score !== undefined
+                          ? ` ${Math.round(scene.smile_score * 100)}%`
+                          : ""}
+                      </span>
                     </span>
                   )}
                 </div>

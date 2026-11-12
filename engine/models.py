@@ -43,6 +43,15 @@ class SceneCut(BaseModel):
     sharpness_score: Optional[float] = Field(default=None, description="Laplacian variance sharpness")
     motion_score: Optional[float] = Field(default=None, description="Motion score")
     brightness_score: Optional[float] = Field(default=None, description="Average frame brightness")
+    has_faces: bool = Field(default=False, description="True if one or more faces detected")
+    face_count: int = Field(default=0, description="Number of faces detected in keyframe")
+    dominant_expression: Optional[str] = Field(
+        default=None, description="Detected facial expression (e.g. joyful / smiling, laughing, neutral)"
+    )
+    smile_score: Optional[float] = Field(default=None, description="Smile confidence score (0.0 to 1.0)")
+    subject_prominence: Optional[Literal["close_up", "medium_shot", "wide_shot", "scenic"]] = Field(
+        default=None, description="Subject framing prominence based on face bounding box area"
+    )
 
 
 class ScenesCatalog(BaseModel):

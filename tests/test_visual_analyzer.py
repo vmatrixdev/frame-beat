@@ -127,6 +127,22 @@ def test_analyze_image(tmp_path: Path):
     assert Path(cut.keyframe_path).exists()
     assert cut.sharpness_score is not None and cut.sharpness_score > 0
     assert cut.brightness_score is not None and cut.brightness_score > 0
+    assert cut.has_faces is False
+    assert cut.face_count == 0
+    assert cut.subject_prominence == "scenic"
+
+
+def test_analyze_frame_semantics_fallback():
+    """Verifies facial emotion / subject prominence analyzer handles blank frames cleanly."""
+    from engine.face_analyzer import analyze_frame_semantics
+
+    blank = np.zeros((240, 320, 3), dtype=np.uint8)
+    result = analyze_frame_semantics(blank)
+    assert result["has_faces"] is False
+    assert result["face_count"] == 0
+    assert result["subject_prominence"] == "scenic"
+    assert result["dominant_expression"] is None
+    assert result["smile_score"] is None
 
 
 def test_analyze_directory_with_images_and_videos(synthetic_video_dir: Path, tmp_path: Path):
