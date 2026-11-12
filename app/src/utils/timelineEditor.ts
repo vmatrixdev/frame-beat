@@ -1,4 +1,4 @@
-import type { BeatsData, SceneCut, TimelineCut, TransitionType } from "../types/schemas";
+import type { BeatsData, SceneCut, ScenesCatalog, TimelineCut, TransitionType } from "../types/schemas";
 
 const MIN_CLIP_DURATION = 0.2;
 const TRANSITIONS_ORDER: TransitionType[] = [
@@ -294,4 +294,43 @@ export function computeZoomScrollLeft(
   const maxScroll = Math.max(0, newContentWidth - viewportWidth);
   const target = anchor.ratio * newContentWidth - anchor.mouseXInViewport;
   return Math.max(0, Math.min(maxScroll, target));
+}
+
+/**
+ * Merges a newly analyzed ScenesCatalog into an existing catalog without
+ * discarding previously added raw videos. If any source_file in `incoming`
+ * already exists in `prev`, its scenes are replaced by the newly analyzed ones.
+ */
+export function mergeScenesCatalog(
+  prev: ScenesCatalog | null,
+  incoming: ScenesCatalog
+): ScenesCatalog {
+  if (!prev) {
+    const normalized = incoming.scenes.map((s, idx) => ({ ...s, scene_id: idx }));
+    return {
+      source_files: [...incoming.source_files],
+      total_scenes: normalized.length,
+      scenes: normalized,
+    };
+  }
+
+  const incomingFileSet = new Set(incoming.source_files);
+  const mergedFiles = [...prev.source_files];
+  for (const f of incoming.source_files) {
+    if (!mergedFiles.includes(f)) {
+      mergedFiles.push(f);
+    }
+  }
+
+  const retainedScenes = prev.scenes.filter((s) => !incomingFileSet.has(s.source_file));
+  const combined = [...retainedScenes, ...incoming.scenes].map((s, idx) => ({
+    ...s,
+    scene_id: idx,
+  }));
+
+  return {
+    source_files: mergedFiles,
+    total_scenes: combined.length,
+    scenes: combined,
+  };
 }

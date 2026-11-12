@@ -24,6 +24,7 @@ import {
   buildCutFromScene,
   computeZoomAnchor,
   computeZoomScrollLeft,
+  mergeScenesCatalog,
   splitCutAtTime,
   type ZoomAnchor,
 } from "./utils/timelineEditor";
@@ -31,7 +32,7 @@ import { engineClient, isTauriEnvironment } from "./services/engineClient";
 import { audioEngine } from "./services/audioEngine";
 import { DropZones } from "./components/DropZones";
 import { MediaLibraryTree } from "./components/MediaLibraryTree";
-import { HighlightsList } from "./components/HighlightsList";
+import { HighlightsList, type HighlightAnalysisSettings } from "./components/HighlightsList";
 import { WaveformVisualizer } from "./components/WaveformVisualizer";
 import { TimelineTrack } from "./components/TimelineTrack";
 import { VideoPreview } from "./components/VideoPreview";
@@ -63,6 +64,12 @@ export default function App() {
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [previewScene, setPreviewScene] = useState<SceneCut | null>(null);
   const [sidebarTab, setSidebarTab] = useState<"library" | "highlights">("library");
+  const [highlightSettings, setHighlightSettings] = useState<HighlightAnalysisSettings>({
+    detectorThreshold: 27,
+    maxSceneDuration: 5.5,
+    targetWindowDuration: 3.5,
+    minWindowDuration: 2.0,
+  });
 
   // Playback & Scrubber state
   const [currentTime, setCurrentTime] = useState<number>(0);
@@ -164,18 +171,41 @@ export default function App() {
     }
   };
 
-  // Handle Video Selection & Scene Detection
+  // Handle Video Selection & Scene Detection (merges into existing library instead of replacing)
   const handleSelectVideoDir = async (dir: string, files?: File[]) => {
     setVideoDir(dir);
     setIsAnalyzingScenes(true);
     try {
-      const scenesResult = await engineClient.analyzeScenes(dir, undefined, files);
-      setScenes(scenesResult);
+      const scenesResult = await engineClient.analyzeScenes(dir, undefined, files, highlightSettings);
+      setScenes((prev) => mergeScenesCatalog(prev, scenesResult));
       if (scenesResult.scenes.length > 0) {
-        setPreviewScene(scenesResult.scenes[0]);
+        setPreviewScene((prev) => prev ?? scenesResult.scenes[0]);
       }
     } catch (err) {
       console.error("Scene analysis failed:", err);
+    } finally {
+      setIsAnalyzingScenes(false);
+    }
+  };
+
+  // Re-run highlight windowing on all loaded raw media using current highlightSettings
+  const handleReanalyzeAllHighlights = async () => {
+    if (!scenes || scenes.source_files.length === 0) return;
+    setIsAnalyzingScenes(true);
+    try {
+      let updated: ScenesCatalog | null = scenes;
+      for (const filePath of scenes.source_files) {
+        const res = await engineClient.analyzeScenes(filePath, undefined, undefined, highlightSettings);
+        updated = mergeScenesCatalog(updated, res);
+      }
+      if (updated) {
+        setScenes(updated);
+        if (updated.scenes.length > 0) {
+          setPreviewScene(updated.scenes[0]);
+        }
+      }
+    } catch (err) {
+      console.error("Re-analyzing highlights failed:", err);
     } finally {
       setIsAnalyzingScenes(false);
     }
@@ -697,6 +727,10 @@ export default function App() {
                 catalog={scenes}
                 activeScene={previewScene}
                 onSelectScene={handleSelectHighlightScene}
+                highlightSettings={highlightSettings}
+                onChangeHighlightSettings={setHighlightSettings}
+                onReanalyzeHighlights={handleReanalyzeAllHighlights}
+                isReanalyzing={isAnalyzingScenes}
               />
             </div>
           )}

@@ -200,9 +200,19 @@ class EngineClient {
   }
 
   /**
-   * Run scene detection & keyframe extraction on source videos directory.
+   * Run scene detection & keyframe extraction on source videos directory or single file.
    */
-  async analyzeScenes(videoDir: string, thumbsDir?: string, files?: File[]): Promise<ScenesCatalog> {
+  async analyzeScenes(
+    videoDir: string,
+    thumbsDir?: string,
+    files?: File[],
+    options?: {
+      detectorThreshold?: number;
+      maxSceneDuration?: number;
+      targetWindowDuration?: number;
+      minWindowDuration?: number;
+    }
+  ): Promise<ScenesCatalog> {
     if (this.isMockMode) {
       // 1. If browser files were dropped/selected, upload them into cache/library/<batchId> and run real Python analysis
       if (files && files.length > 0) {
@@ -227,7 +237,11 @@ class EngineClient {
             const res = await fetch("/api/analyze-scenes", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ dirPath: batchDir, thumbsDir: thumbsDir || "cache/thumbnails" }),
+              body: JSON.stringify({
+                dirPath: batchDir,
+                thumbsDir: thumbsDir || "cache/thumbnails",
+                ...options,
+              }),
             });
             if (res.ok) {
               const data = await res.json();
@@ -239,14 +253,18 @@ class EngineClient {
         }
       }
 
-      // 2. Try real Python PySceneDetect engine via Vite Dev Server API if given a filesystem directory path
+      // 2. Try real Python PySceneDetect engine via Vite Dev Server API if given a filesystem directory or file path
       const isDirPath = videoDir.includes("/") || videoDir.startsWith("~") || videoDir.includes("\\");
       if (isDirPath) {
         try {
           const res = await fetch("/api/analyze-scenes", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ dirPath: videoDir, thumbsDir: thumbsDir || "cache/thumbnails" }),
+            body: JSON.stringify({
+              dirPath: videoDir,
+              thumbsDir: thumbsDir || "cache/thumbnails",
+              ...options,
+            }),
           });
           if (res.ok) {
             const data = await res.json();
@@ -296,6 +314,18 @@ class EngineClient {
       const args = ["analyze-scenes", videoDir];
       if (thumbsDir) {
         args.push("--thumbs", thumbsDir);
+      }
+      if (typeof options?.detectorThreshold === "number") {
+        args.push("--threshold", String(options.detectorThreshold));
+      }
+      if (typeof options?.maxSceneDuration === "number") {
+        args.push("--max-scene-duration", String(options.maxSceneDuration));
+      }
+      if (typeof options?.targetWindowDuration === "number") {
+        args.push("--target-window-duration", String(options.targetWindowDuration));
+      }
+      if (typeof options?.minWindowDuration === "number") {
+        args.push("--min-window-duration", String(options.minWindowDuration));
       }
       const cmd = Command.sidecar("binaries/amv-engine", args);
       const output = await cmd.execute();

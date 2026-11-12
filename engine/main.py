@@ -17,7 +17,13 @@ import typer
 from rich.console import Console
 
 from engine.audio_analyzer import analyze_audio
-from engine.visual_analyzer import analyze_directory, analyze_single_segment
+from engine.visual_analyzer import (
+    IMAGE_EXTENSIONS,
+    analyze_directory,
+    analyze_image,
+    analyze_single_segment,
+    analyze_video,
+)
 from engine.director import direct_amv, load_dotenv_if_present
 from engine.stitcher import render_ffmpeg, export_project, RenderProgress
 from engine.models import BeatsData, ScenesCatalog, Timeline
@@ -51,13 +57,43 @@ def analyze_soundtrack(
 
 @app.command(name="analyze-scenes")
 def analyze_scenes(
-    video_dir: Path = typer.Argument(..., help="Directory with source video clips"),
+    video_dir: Path = typer.Argument(..., help="Directory or single media file with source video/image"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Path to write scenes.json"),
     thumbnail_dir: Path = typer.Option(Path("cache/thumbnails"), "--thumbs", help="Directory for thumbnail keyframes"),
+    detector_threshold: float = typer.Option(27.0, "--threshold", help="PySceneDetect ContentDetector threshold"),
+    max_scene_duration: float = typer.Option(5.5, "--max-scene-duration", help="Subdivide scenes longer than this (seconds)"),
+    target_window_duration: float = typer.Option(3.5, "--target-window-duration", help="Target highlight window duration (seconds)"),
+    min_window_duration: float = typer.Option(2.0, "--min-window-duration", help="Minimum highlight window duration (seconds)"),
 ):
     """Detect visual scene cuts and extract keyframes and metrics."""
     try:
-        catalog = analyze_directory(video_dir, output_thumbnail_dir=thumbnail_dir)
+        if video_dir.is_file():
+            if video_dir.suffix.lower() in IMAGE_EXTENSIONS:
+                cut = analyze_image(video_dir, output_thumbnail_dir=thumbnail_dir)
+                cuts = [cut]
+            else:
+                cuts = analyze_video(
+                    video_dir,
+                    output_thumbnail_dir=thumbnail_dir,
+                    detector_threshold=detector_threshold,
+                    max_scene_duration=max_scene_duration,
+                    target_window_duration=target_window_duration,
+                    min_window_duration=min_window_duration,
+                )
+            catalog = ScenesCatalog(
+                source_files=[str(video_dir.resolve())],
+                total_scenes=len(cuts),
+                scenes=cuts,
+            )
+        else:
+            catalog = analyze_directory(
+                video_dir,
+                output_thumbnail_dir=thumbnail_dir,
+                detector_threshold=detector_threshold,
+                max_scene_duration=max_scene_duration,
+                target_window_duration=target_window_duration,
+                min_window_duration=min_window_duration,
+            )
         result_json = catalog.model_dump_json(indent=2)
         if output:
             output.parent.mkdir(parents=True, exist_ok=True)

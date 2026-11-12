@@ -79,7 +79,21 @@ function amvEngineVitePlugin(): Plugin {
             const thumbsDir = path.join(projectRoot, "cache", "thumbnails");
             fs.mkdirSync(thumbsDir, { recursive: true });
 
-            const proc = spawn(pythonBin, [scriptPath, "analyze-scenes", dirPath, "--thumbs", thumbsDir], {
+            const cliArgs = [scriptPath, "analyze-scenes", dirPath, "--thumbs", thumbsDir];
+            if (typeof body.detectorThreshold === "number") {
+              cliArgs.push("--threshold", String(body.detectorThreshold));
+            }
+            if (typeof body.maxSceneDuration === "number") {
+              cliArgs.push("--max-scene-duration", String(body.maxSceneDuration));
+            }
+            if (typeof body.targetWindowDuration === "number") {
+              cliArgs.push("--target-window-duration", String(body.targetWindowDuration));
+            }
+            if (typeof body.minWindowDuration === "number") {
+              cliArgs.push("--min-window-duration", String(body.minWindowDuration));
+            }
+
+            const proc = spawn(pythonBin, cliArgs, {
               cwd: projectRoot,
               env: { ...process.env, PYTHONPATH: projectRoot },
             });

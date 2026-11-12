@@ -198,3 +198,24 @@ def test_analyze_video_highlight_windowing_long_continuous_clip(tmp_path: Path):
         assert cut.keyframe_path is not None and Path(cut.keyframe_path).exists()
         if idx > 0:
             assert cut.start_time >= cuts[idx - 1].end_time - 1e-3
+
+
+def test_analyze_video_quick_cut_parametrization(tmp_path: Path):
+    """Verifies parameterized quick cuts (e.g. 0.5s target window) on a continuous clip."""
+    clip = tmp_path / "quick_cut_source.mp4"
+    generate_synthetic_video(
+        clip,
+        duration_sec=5.0,
+        scenes=[{"duration": 5.0, "color": (50, 180, 120), "label": "Fast", "shape": "rect"}],
+    )
+
+    cuts = analyze_video(
+        clip,
+        output_thumbnail_dir=tmp_path / "quick_thumbs",
+        max_scene_duration=1.5,
+        target_window_duration=0.5,
+        min_window_duration=0.35,
+    )
+    assert len(cuts) >= 3
+    for cut in cuts:
+        assert 0.3 <= cut.duration <= 0.6

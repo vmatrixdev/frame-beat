@@ -69,8 +69,10 @@ def extract_highlight_windows(
     if duration <= max_scene_duration:
         return [(start_sec, end_sec, None)]
 
-    # Sample evenly across the long scene (at ~0.5s intervals, capped at 60 samples)
-    step_sec = max(0.5, duration / 60.0)
+    effective_min = min(min_window_duration, max(0.25, target_window_duration * 0.7))
+
+    # Sample evenly across the long scene, adapting density for short quick-cut windows
+    step_sec = max(0.2, min(0.5, target_window_duration * 0.4), duration / 120.0)
     sample_times: List[float] = []
     t = start_sec + step_sec * 0.5
     while t < end_sec:
@@ -130,7 +132,9 @@ def extract_highlight_windows(
         right = scores[i + 1] if i + 1 < len(scores) else scores[i]
         smoothed.append(0.25 * left + 0.5 * scores[i] + 0.25 * right)
 
-    target_count = max(2, min(8, int(round(duration / 4.5))))
+    spacing = max(0.5, target_window_duration * 1.25)
+    max_windows = 24 if target_window_duration <= 1.2 else 12 if target_window_duration <= 2.5 else 8
+    target_count = max(2, min(max_windows, int(round(duration / spacing))))
     half_win = target_window_duration / 2.0
     ranked_indices = sorted(range(len(smoothed)), key=lambda i: smoothed[i], reverse=True)
 
@@ -160,7 +164,7 @@ def extract_highlight_windows(
                     w_end = w_start
                     break
 
-        if w_end - w_start < min_window_duration:
+        if w_end - w_start < effective_min:
             continue
 
         win_motions = [
@@ -176,7 +180,7 @@ def extract_highlight_windows(
         cur = start_sec
         while cur < end_sec - 0.1:
             nxt = min(end_sec, cur + target_window_duration)
-            if nxt - cur >= min_window_duration or not selected:
+            if nxt - cur >= effective_min or not selected:
                 selected.append((round(cur, 3), round(nxt, 3), None))
             cur = nxt
 
@@ -241,6 +245,7 @@ def analyze_video(
     detector_threshold: float = 27.0,
     max_scene_duration: float = 5.5,
     target_window_duration: float = 3.5,
+    min_window_duration: float = 2.0,
 ) -> List[SceneCut]:
     """
     Detects scenes in a video file and saves keyframe thumbnails.
@@ -287,6 +292,7 @@ def analyze_video(
                 raw_end,
                 max_scene_duration=max_scene_duration,
                 target_window_duration=target_window_duration,
+                min_window_duration=min_window_duration,
             )
         )
 
@@ -359,6 +365,9 @@ def analyze_directory(
     video_dir: str | Path,
     output_thumbnail_dir: str | Path = "cache/thumbnails",
     detector_threshold: float = 27.0,
+    max_scene_duration: float = 5.5,
+    target_window_duration: float = 3.5,
+    min_window_duration: float = 2.0,
 ) -> ScenesCatalog:
     """
     Analyzes all video files in a directory and returns a unified ScenesCatalog.
@@ -383,7 +392,14 @@ def analyze_directory(
             global_scene_id += 1
             all_scenes.append(cut)
         else:
-            cuts = analyze_video(m_file, output_thumbnail_dir, detector_threshold=detector_threshold)
+            cuts = analyze_video(
+                m_file,
+                output_thumbnail_dir,
+                detector_threshold=detector_threshold,
+                max_scene_duration=max_scene_duration,
+                target_window_duration=target_window_duration,
+                min_window_duration=min_window_duration,
+            )
             for cut in cuts:
                 cut.scene_id = global_scene_id
                 global_scene_id += 1

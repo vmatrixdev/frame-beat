@@ -9,22 +9,40 @@ import {
   Filter,
   Play,
   Smile,
+  SlidersHorizontal,
+  RefreshCw,
 } from "lucide-react";
+
+export interface HighlightAnalysisSettings {
+  detectorThreshold: number;
+  maxSceneDuration: number;
+  targetWindowDuration: number;
+  minWindowDuration: number;
+}
 
 export interface HighlightsListProps {
   catalog: ScenesCatalog | null;
   activeScene: SceneCut | null;
   onSelectScene: (scene: SceneCut) => void;
+  highlightSettings?: HighlightAnalysisSettings;
+  onChangeHighlightSettings?: (next: HighlightAnalysisSettings) => void;
+  onReanalyzeHighlights?: () => void;
+  isReanalyzing?: boolean;
 }
 
 export const HighlightsList: React.FC<HighlightsListProps> = ({
   catalog,
   activeScene,
   onSelectScene,
+  highlightSettings,
+  onChangeHighlightSettings,
+  onReanalyzeHighlights,
+  isReanalyzing = false,
 }) => {
   const [filterType, setFilterType] = useState<"all" | "video" | "image" | "faces">("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [sortBy, setSortBy] = useState<"index" | "sharpness" | "brightness">("index");
+  const [showSettings, setShowSettings] = useState<boolean>(false);
 
   const scenes = catalog?.scenes || [];
 
@@ -71,12 +89,135 @@ export const HighlightsList: React.FC<HighlightsListProps> = ({
   return (
     <div className="flex flex-col h-full space-y-3">
       {/* Header Stats & Counts */}
-      <div className="flex items-center justify-between text-xs font-medium text-slate-300">
-        <span>Statically Analyzed Highlights</span>
-        <span className="font-mono text-[11px] text-purple-400 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-800/50">
-          {scenes.length} items ({videoCount} videos • {imageCount} photos)
-        </span>
+      <div className="flex items-center justify-between gap-2 text-xs font-medium text-slate-300">
+        <span>Analyzed Highlights</span>
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[11px] text-purple-400 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-800/50">
+            {scenes.length} items ({videoCount} videos • {imageCount} photos)
+          </span>
+          {highlightSettings && onChangeHighlightSettings && (
+            <button
+              type="button"
+              onClick={() => setShowSettings((s) => !s)}
+              className={`p-1 rounded border transition ${
+                showSettings
+                  ? "bg-indigo-600/30 text-indigo-300 border-indigo-500/50"
+                  : "bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200"
+              }`}
+              title="Highlight Windowing Parameters"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Collapsible Highlight Windowing Parameters */}
+      {showSettings && highlightSettings && onChangeHighlightSettings && (
+        <div className="p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2 text-[11px]">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-slate-300">Highlight Windowing</span>
+            <div className="flex items-center gap-1">
+              {[
+                { label: "0.5s Quick", target: 0.5, max: 1.5, min: 0.35 },
+                { label: "1.5s Fast", target: 1.5, max: 3.0, min: 0.9 },
+                { label: "3.5s Balanced", target: 3.5, max: 5.5, min: 2.0 },
+                { label: "5.0s Slow", target: 5.0, max: 8.0, min: 2.5 },
+              ].map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  onClick={() =>
+                    onChangeHighlightSettings({
+                      ...highlightSettings,
+                      targetWindowDuration: preset.target,
+                      maxSceneDuration: preset.max,
+                      minWindowDuration: preset.min,
+                    })
+                  }
+                  className={`px-1.5 py-0.5 rounded text-[10px] border transition ${
+                    Math.abs(highlightSettings.targetWindowDuration - preset.target) < 0.05
+                      ? "bg-indigo-600 text-white border-indigo-400"
+                      : "bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <label className="flex flex-col gap-0.5 text-slate-400">
+              <span className="text-[10px]">Target Cut (s)</span>
+              <input
+                type="number"
+                min={0.3}
+                max={15}
+                step={0.1}
+                value={highlightSettings.targetWindowDuration}
+                onChange={(e) => {
+                  const val = Math.max(0.3, Math.min(15, Number(e.target.value) || 0.5));
+                  onChangeHighlightSettings({
+                    ...highlightSettings,
+                    targetWindowDuration: val,
+                    minWindowDuration: Math.min(highlightSettings.minWindowDuration, val * 0.7),
+                  });
+                }}
+                className="bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-slate-200 font-mono text-[11px]"
+              />
+            </label>
+            <label className="flex flex-col gap-0.5 text-slate-400">
+              <span className="text-[10px]">Max Scene (s)</span>
+              <input
+                type="number"
+                min={0.5}
+                max={30}
+                step={0.5}
+                value={highlightSettings.maxSceneDuration}
+                onChange={(e) => {
+                  const val = Math.max(0.5, Math.min(30, Number(e.target.value) || 1.0));
+                  onChangeHighlightSettings({
+                    ...highlightSettings,
+                    maxSceneDuration: val,
+                  });
+                }}
+                className="bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-slate-200 font-mono text-[11px]"
+              />
+            </label>
+            <label className="flex flex-col gap-0.5 text-slate-400">
+              <span className="text-[10px]">Cut Threshold</span>
+              <input
+                type="number"
+                min={5}
+                max={80}
+                step={1}
+                value={highlightSettings.detectorThreshold}
+                onChange={(e) => {
+                  const val = Math.max(5, Math.min(80, Number(e.target.value) || 27));
+                  onChangeHighlightSettings({
+                    ...highlightSettings,
+                    detectorThreshold: val,
+                  });
+                }}
+                className="bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-slate-200 font-mono text-[11px]"
+              />
+            </label>
+          </div>
+
+          {onReanalyzeHighlights && (
+            <button
+              type="button"
+              onClick={onReanalyzeHighlights}
+              disabled={isReanalyzing}
+              className="w-full py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-[11px] flex items-center justify-center gap-1.5 transition"
+            >
+              <RefreshCw className={`w-3 h-3 ${isReanalyzing ? "animate-spin" : ""}`} />
+              {isReanalyzing ? "Re-scanning Clips..." : "Re-run Highlights on All Clips"}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Filter and Search Controls */}
       <div className="space-y-2">

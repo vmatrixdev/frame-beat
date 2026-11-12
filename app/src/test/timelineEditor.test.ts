@@ -10,8 +10,9 @@ import {
   snapToBeat,
   computeZoomAnchor,
   computeZoomScrollLeft,
+  mergeScenesCatalog,
 } from "../utils/timelineEditor";
-import type { BeatsData, SceneCut, TimelineCut } from "../types/schemas";
+import type { BeatsData, SceneCut, ScenesCatalog, TimelineCut } from "../types/schemas";
 
 const MOCK_BEATS: BeatsData = {
   duration_sec: 10.0,
@@ -137,5 +138,54 @@ describe("NLE timelineEditor utilities", () => {
     const clampedAnchor = computeZoomAnchor(0, 1000, 1000, -25);
     expect(clampedAnchor.mouseXInViewport).toBe(0);
     expect(computeZoomScrollLeft(clampedAnchor, 1000, 1000)).toBe(0);
+  });
+
+  it("merges newly added raw videos without replacing existing videos or highlights", () => {
+    const first: ScenesCatalog = {
+      source_files: ["/media/a.mp4"],
+      total_scenes: 1,
+      scenes: [
+        {
+          scene_id: 0,
+          source_file: "/media/a.mp4",
+          start_time: 0,
+          end_time: 3,
+          duration: 3,
+        },
+      ],
+    };
+    const second: ScenesCatalog = {
+      source_files: ["/media/b.mp4"],
+      total_scenes: 1,
+      scenes: [
+        {
+          scene_id: 0,
+          source_file: "/media/b.mp4",
+          start_time: 1,
+          end_time: 4,
+          duration: 3,
+        },
+      ],
+    };
+
+    const merged = mergeScenesCatalog(first, second);
+    expect(merged.source_files).toEqual(["/media/a.mp4", "/media/b.mp4"]);
+    expect(merged.total_scenes).toBe(2);
+    expect(merged.scenes.map((s) => s.scene_id)).toEqual([0, 1]);
+
+    // Re-analyzing /media/a.mp4 replaces only /media/a.mp4's highlights while keeping /media/b.mp4
+    const reanalyzedA: ScenesCatalog = {
+      source_files: ["/media/a.mp4"],
+      total_scenes: 2,
+      scenes: [
+        { scene_id: 0, source_file: "/media/a.mp4", start_time: 0, end_time: 0.5, duration: 0.5 },
+        { scene_id: 1, source_file: "/media/a.mp4", start_time: 1.5, end_time: 2.0, duration: 0.5 },
+      ],
+    };
+    const updated = mergeScenesCatalog(merged, reanalyzedA);
+    expect(updated.source_files).toEqual(["/media/a.mp4", "/media/b.mp4"]);
+    expect(updated.total_scenes).toBe(3);
+    expect(updated.scenes.filter((s) => s.source_file === "/media/b.mp4")).toHaveLength(1);
+    expect(updated.scenes.filter((s) => s.source_file === "/media/a.mp4")).toHaveLength(2);
   });
 });
