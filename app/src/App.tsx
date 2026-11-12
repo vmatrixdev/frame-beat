@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { BeatsData, ScenesCatalog, Timeline } from "./types/schemas";
 import { engineClient, isTauriEnvironment } from "./services/engineClient";
+import { audioEngine } from "./services/audioEngine";
 import { DropZones } from "./components/DropZones";
 import { WaveformVisualizer } from "./components/WaveformVisualizer";
 import { TimelineTrack } from "./components/TimelineTrack";
@@ -42,6 +43,8 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playbackRate, setPlaybackRate] = useState<number>(1.0);
+  const [volume, setVolume] = useState<number>(0.8);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
   const [selectedCutIndex, setSelectedCutIndex] = useState<number | null>(null);
 
   // Export Modal state
@@ -58,12 +61,19 @@ export default function App() {
       : beats?.duration_sec || 16.0;
 
   // Handle Audio Selection & Analysis
-  const handleSelectAudio = async (path: string) => {
+  const handleSelectAudio = async (path: string, file?: File) => {
     setAudioFile(path);
+    if (file) {
+      const objectUrl = URL.createObjectURL(file);
+      audioEngine.loadAudioSource(objectUrl);
+    }
     setIsAnalyzingAudio(true);
     try {
       const beatsResult = await engineClient.analyzeSoundtrack(path);
       setBeats(beatsResult);
+      if (!file) {
+        audioEngine.setSyntheticBeats(beatsResult);
+      }
     } catch (err) {
       console.error("Audio analysis failed:", err);
     } finally {
@@ -96,6 +106,8 @@ export default function App() {
     setProjectTitle(fixtures.timeline.project_title);
     setCurrentTime(0);
     setIsPlaying(false);
+    audioEngine.stop();
+    audioEngine.setSyntheticBeats(fixtures.beats);
   };
 
   // Direct AMV Timeline with Gemini LLM / Procedural Director
@@ -107,6 +119,7 @@ export default function App() {
       setScenes(fixtures.scenes);
       setAudioFile(fixtures.timeline.target_audio);
       setVideoDir("anime_raws_1080p");
+      audioEngine.setSyntheticBeats(fixtures.beats);
     }
 
     const currentBeats = beats || engineClient.loadDemoFixtures().beats;
@@ -123,10 +136,52 @@ export default function App() {
       setTimeline(generated);
       setCurrentTime(0);
       setIsPlaying(false);
+      audioEngine.stop();
     } catch (err) {
       console.error("Director generation failed:", err);
     } finally {
       setIsDirecting(false);
+    }
+  };
+
+  // Playback & Audio Controls
+  const handleTogglePlayPause = () => {
+    setIsPlaying((prev) => {
+      const next = !prev;
+      if (next) {
+        audioEngine.play(currentTime, playbackRate);
+      } else {
+        audioEngine.pause();
+      }
+      return next;
+    });
+  };
+
+  const handleSeek = (time: number) => {
+    setCurrentTime(time);
+    audioEngine.seek(time);
+    if (isPlaying) {
+      audioEngine.play(time, playbackRate);
+    }
+  };
+
+  const handleChangePlaybackRate = (rate: number) => {
+    setPlaybackRate(rate);
+    if (isPlaying) {
+      audioEngine.play(currentTime, rate);
+    }
+  };
+
+  const handleToggleMute = () => {
+    const muted = audioEngine.toggleMute();
+    setIsMuted(muted);
+  };
+
+  const handleChangeVolume = (v: number) => {
+    setVolume(v);
+    audioEngine.setVolume(v);
+    if (isMuted && v > 0) {
+      setIsMuted(false);
     }
   };
 
@@ -139,6 +194,7 @@ export default function App() {
           const next = prev + deltaSec;
           if (next >= duration) {
             setIsPlaying(false);
+            audioEngine.stop();
             return 0;
           }
           return next;
@@ -177,12 +233,12 @@ export default function App() {
       }
       if (e.code === "Space") {
         e.preventDefault();
-        setIsPlaying((p) => !p);
+        handleTogglePlayPause();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [currentTime, playbackRate, isPlaying]);
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100 select-none overflow-hidden">
@@ -342,9 +398,13 @@ export default function App() {
                 isPlaying={isPlaying}
                 playbackRate={playbackRate}
                 duration={duration}
-                onPlayPause={() => setIsPlaying((p) => !p)}
-                onSeek={(t) => setCurrentTime(t)}
-                onChangePlaybackRate={(r) => setPlaybackRate(r)}
+                volume={volume}
+                isMuted={isMuted}
+                onPlayPause={handleTogglePlayPause}
+                onSeek={handleSeek}
+                onChangePlaybackRate={handleChangePlaybackRate}
+                onToggleMute={handleToggleMute}
+                onChangeVolume={handleChangeVolume}
               />
             </div>
           </div>
@@ -388,7 +448,7 @@ export default function App() {
               beatsData={beats}
               currentTime={currentTime}
               duration={duration}
-              onSeek={(t) => setCurrentTime(t)}
+              onSeek={handleSeek}
             />
 
             {/* Cuts Track */}
@@ -398,7 +458,7 @@ export default function App() {
               duration={duration}
               selectedCutIndex={selectedCutIndex}
               onSelectCut={(idx) => setSelectedCutIndex(idx)}
-              onSeek={(t) => setCurrentTime(t)}
+              onSeek={handleSeek}
             />
           </div>
         </section>

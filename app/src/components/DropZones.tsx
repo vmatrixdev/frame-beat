@@ -9,7 +9,7 @@ export interface DropZonesProps {
   audioDuration?: number;
   audioBpm?: number;
   totalScenes?: number;
-  onSelectAudio: (path: string) => void;
+  onSelectAudio: (path: string, file?: File) => void;
   onSelectVideoDir: (path: string) => void;
   onLoadDemoFixtures: () => void;
 }
@@ -33,7 +33,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      onSelectAudio(file.name);
+      onSelectAudio(file.name, file);
     }
   };
 
@@ -78,6 +78,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleAudioDrop}
           onClick={() => {
+            audioInputRef.current?.click();
             if (!audioFile) {
               onSelectAudio("audio/synthwave_120bpm.wav");
             }
@@ -151,7 +152,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
             accept="audio/*"
             className="hidden"
             onChange={(e) => {
-              if (e.target.files?.[0]) onSelectAudio(e.target.files[0].name);
+              if (e.target.files?.[0]) onSelectAudio(e.target.files[0].name, e.target.files[0]);
             }}
           />
         </div>

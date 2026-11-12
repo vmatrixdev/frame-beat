@@ -8,6 +8,8 @@ import {
   RotateCcw,
   Maximize2,
   Activity,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 
 export interface VideoPreviewProps {
@@ -16,9 +18,13 @@ export interface VideoPreviewProps {
   isPlaying: boolean;
   playbackRate: number;
   duration?: number;
+  volume?: number;
+  isMuted?: boolean;
   onPlayPause: () => void;
   onSeek: (time: number) => void;
   onChangePlaybackRate: (rate: number) => void;
+  onToggleMute?: () => void;
+  onChangeVolume?: (volume: number) => void;
 }
 
 export function formatTimecode(seconds: number): string {
@@ -36,9 +42,13 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
   isPlaying,
   playbackRate,
   duration: customDuration,
+  volume = 0.8,
+  isMuted = false,
   onPlayPause,
   onSeek,
   onChangePlaybackRate,
+  onToggleMute,
+  onChangeVolume,
 }) => {
   const cuts = timeline?.cuts || [];
   const duration =
@@ -168,6 +178,31 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
             <span className="text-slate-100 font-semibold">{formatTimecode(currentTime)}</span>
             <span className="text-slate-600">/</span>
             <span className="text-slate-400">{formatTimecode(duration)}</span>
+          </div>
+
+          {/* Audio Volume Controls */}
+          <div className="flex items-center gap-1.5 ml-2 bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800">
+            <button
+              onClick={onToggleMute}
+              title={isMuted ? "Unmute" : "Mute"}
+              className="text-slate-400 hover:text-slate-200 transition"
+            >
+              {isMuted || volume === 0 ? (
+                <VolumeX className="w-4 h-4 text-rose-400" />
+              ) : (
+                <Volume2 className="w-4 h-4 text-indigo-400" />
+              )}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={isMuted ? 0 : volume}
+              onChange={(e) => onChangeVolume?.(parseFloat(e.target.value))}
+              aria-label="Volume"
+              className="w-16 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            />
           </div>
         </div>
 
