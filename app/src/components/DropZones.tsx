@@ -12,6 +12,7 @@ export interface DropZonesProps {
   onSelectAudio: (path: string, file?: File) => void;
   onSelectVideoDir: (path: string, files?: File[]) => void;
   onLoadDemoFixtures: () => void;
+  onLoadAnalyzedScenes?: () => void;
 }
 
 export const DropZones: React.FC<DropZonesProps> = ({
@@ -25,6 +26,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
   onSelectAudio,
   onSelectVideoDir,
   onLoadDemoFixtures,
+  onLoadAnalyzedScenes,
 }) => {
   const audioInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -76,6 +78,25 @@ export const DropZones: React.FC<DropZonesProps> = ({
           Load Fixtures
         </button>
       </div>
+
+      {/* Pre-Analyzed Personal Media Quick-Load */}
+      {onLoadAnalyzedScenes && (
+        <button
+          onClick={onLoadAnalyzedScenes}
+          className="w-full py-2 px-3 rounded-xl bg-purple-950/40 hover:bg-purple-900/50 border border-purple-500/30 flex items-center justify-between transition text-left group"
+        >
+          <div className="flex items-center gap-2">
+            <Film className="w-4 h-4 text-purple-400 group-hover:scale-110 transition" />
+            <div>
+              <div className="text-xs font-medium text-purple-200">Load Photos-1-001 Scenes</div>
+              <div className="text-[10px] text-slate-400">64 cuts from your 44 files</div>
+            </div>
+          </div>
+          <span className="text-[11px] font-semibold text-purple-400 bg-purple-950 px-2 py-0.5 rounded border border-purple-800/60">
+            64 cuts
+          </span>
+        </button>
+      )}
 
       <div className="space-y-3">
         {/* Audio Track Drop Zone */}

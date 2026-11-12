@@ -53,6 +53,30 @@ function amvEngineVitePlugin(): Plugin {
           }
         });
       });
+
+      // Serve cache/thumbnails for keyframe previews in browser
+      server.middlewares.use("/cache/thumbnails", (req, res, next) => {
+        const projectRoot = path.resolve(__dirname, "..");
+        const thumbName = path.basename(req.url || "");
+        const thumbPath = path.join(projectRoot, "cache", "thumbnails", thumbName);
+        if (fs.existsSync(thumbPath)) {
+          res.setHeader("Content-Type", "image/jpeg");
+          return fs.createReadStream(thumbPath).pipe(res);
+        }
+        next();
+      });
+
+      // API to fetch analyzed scenes (e.g. personal_scenes.json)
+      server.middlewares.use("/api/get-analyzed-scenes", (req, res) => {
+        const projectRoot = path.resolve(__dirname, "..");
+        const scenesFile = path.join(projectRoot, "export", "personal_scenes.json");
+        if (fs.existsSync(scenesFile)) {
+          res.setHeader("Content-Type", "application/json");
+          return fs.createReadStream(scenesFile).pipe(res);
+        }
+        res.statusCode = 404;
+        res.end(JSON.stringify({ error: "No personal_scenes.json found" }));
+      });
     },
   };
 }

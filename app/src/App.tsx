@@ -98,6 +98,29 @@ export default function App() {
     }
   };
 
+  // Load Pre-Analyzed PySceneDetect Scenes (personal_scenes.json)
+  const handleLoadAnalyzedScenes = async () => {
+    try {
+      const res = await fetch("/api/get-analyzed-scenes");
+      if (res.ok) {
+        const data = await res.json();
+        const adjustedScenes = {
+          ...data,
+          scenes: data.scenes.map((s: { keyframe_path?: string }) => ({
+            ...s,
+            keyframe_path: s.keyframe_path
+              ? `/cache/thumbnails/${s.keyframe_path.split("/").pop()}`
+              : undefined,
+          })),
+        };
+        setScenes(adjustedScenes);
+        setVideoDir("Photos-1-001");
+      }
+    } catch (err) {
+      console.error("Failed to load analyzed scenes:", err);
+    }
+  };
+
   // Instant Demo Fixtures Loader
   const handleLoadDemoFixtures = () => {
     const fixtures = engineClient.loadDemoFixtures();
@@ -320,6 +343,7 @@ export default function App() {
               onSelectAudio={handleSelectAudio}
               onSelectVideoDir={handleSelectVideoDir}
               onLoadDemoFixtures={handleLoadDemoFixtures}
+              onLoadAnalyzedScenes={handleLoadAnalyzedScenes}
             />
           </div>
 
