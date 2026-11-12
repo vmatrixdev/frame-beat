@@ -49,6 +49,7 @@ Rules:
 4. Transitions must be one of: "cut", "crossfade", "flash_white", "zoom_in", "whip_pan".
 5. Every cut's timeline_start and timeline_end must seamlessly cover the song from 0.0 to the target duration.
 6. The source clip duration (source_out - source_in) must equal (timeline_end - timeline_start).
+7. Still Images: Cuts where media_type == "image" (or is_still_image == True) are static photos/artwork with no fixed duration limit. You can flexibly hold an image for ANY beat length: quick 1-beat flashes during high-energy drops, or 2 to 4 beats during melodic sections. Set source_in=0.0 and source_out=(timeline_end - timeline_start).
 """
 
 
@@ -203,6 +204,8 @@ def direct_amv(
                     "end_time": s.end_time,
                     "sharpness": s.sharpness_score,
                     "brightness": s.brightness_score,
+                    "media_type": s.media_type,
+                    "is_still_image": s.is_still_image,
                 }
                 for s in catalog.scenes
             ],

@@ -119,7 +119,9 @@ def test_analyze_image(tmp_path: Path):
     cut = analyze_image(img_path, output_thumbnail_dir=thumb_dir)
     assert isinstance(cut, SceneCut)
     assert cut.source_file == str(img_path.resolve())
-    assert cut.duration > 0
+    assert cut.is_still_image is True
+    assert cut.media_type == "image"
+    assert cut.duration == 0.0
     assert cut.start_time == 0.0
     assert cut.keyframe_path is not None
     assert Path(cut.keyframe_path).exists()

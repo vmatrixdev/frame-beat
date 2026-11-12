@@ -27,6 +27,8 @@ export interface SceneCut {
   start_time: number;
   end_time: number;
   duration: number;
+  media_type?: "video" | "image";
+  is_still_image?: boolean;
   keyframe_path?: string;
   sharpness_score?: number;
   motion_score?: number;

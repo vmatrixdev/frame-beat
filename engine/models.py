@@ -32,7 +32,13 @@ class SceneCut(BaseModel):
     source_file: str = Field(..., description="Absolute path to source video file")
     start_time: float = Field(..., description="In point in seconds")
     end_time: float = Field(..., description="Out point in seconds")
-    duration: float = Field(..., description="Duration in seconds")
+    duration: float = Field(..., description="Duration in seconds (0.0 for static photos/images)")
+    media_type: Literal["video", "image"] = Field(
+        default="video", description="Source media type: 'video' or 'image'"
+    )
+    is_still_image: bool = Field(
+        default=False, description="True if source is a static image/photo with infinite duration"
+    )
     keyframe_path: Optional[str] = Field(default=None, description="Path to thumbnail keyframe image")
     sharpness_score: Optional[float] = Field(default=None, description="Laplacian variance sharpness")
     motion_score: Optional[float] = Field(default=None, description="Motion score")
