@@ -178,3 +178,23 @@ def test_analyze_single_segment_custom_range(synthetic_video_path: Path, tmp_pat
     assert cut.keyframe_path is not None and Path(cut.keyframe_path).exists()
     assert cut.sharpness_score is not None
     assert cut.brightness_score is not None
+
+
+def test_analyze_video_highlight_windowing_long_continuous_clip(tmp_path: Path):
+    """Verifies that long continuous videos (> 5.5s) are subdivided into tight highlight windows."""
+    long_clip = tmp_path / "long_continuous.mp4"
+    generate_synthetic_video(
+        long_clip,
+        duration_sec=12.0,
+        scenes=[{"duration": 12.0, "color": (80, 140, 200), "label": "Continuous", "shape": "circle"}],
+    )
+
+    cuts = analyze_video(long_clip, output_thumbnail_dir=tmp_path / "long_thumbs")
+    assert len(cuts) >= 2
+    for idx, cut in enumerate(cuts):
+        assert cut.scene_id == idx
+        assert 2.0 <= cut.duration <= 5.5
+        assert cut.motion_score is not None
+        assert cut.keyframe_path is not None and Path(cut.keyframe_path).exists()
+        if idx > 0:
+            assert cut.start_time >= cuts[idx - 1].end_time - 1e-3
