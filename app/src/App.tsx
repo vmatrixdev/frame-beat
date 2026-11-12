@@ -22,7 +22,7 @@ import type {
   TimelineCut,
   SceneCut,
 } from "./types/schemas";
-import { buildCutFromScene } from "./utils/timelineEditor";
+import { buildCutFromScene, splitCutAtTime } from "./utils/timelineEditor";
 import { engineClient, isTauriEnvironment } from "./services/engineClient";
 import { audioEngine } from "./services/audioEngine";
 import { DropZones } from "./components/DropZones";
@@ -73,6 +73,11 @@ export default function App() {
   const [audioTracks, setAudioTracks] = useState<AudioTrackItem[]>([]);
   const [activeAudioTrackId, setActiveAudioTrackId] = useState<string | null>(null);
   const extraAudioInputRef = useRef<HTMLInputElement>(null);
+
+  // Resizable Layout Panels state
+  const [sidebarWidth, setSidebarWidth] = useState<number>(384);
+  const [timelineHeight, setTimelineHeight] = useState<number>(290);
+  const [resizingPanel, setResizingPanel] = useState<null | "sidebar" | "timeline">(null);
 
   // Export Modal state
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
@@ -429,10 +434,33 @@ export default function App() {
     };
   }, [isPlaying, updatePlayback]);
 
-  // Keyboard hotkeys: Spacebar (Play/Pause), Escape (Return from Highlight Preview)
+  // Resizable Sidebar & Timeline Drawer drag handlers
+  useEffect(() => {
+    if (!resizingPanel) return;
+    const handlePointerMove = (e: PointerEvent) => {
+      if (resizingPanel === "sidebar") {
+        setSidebarWidth(Math.max(260, Math.min(640, e.clientX)));
+      } else if (resizingPanel === "timeline") {
+        setTimelineHeight(Math.max(180, Math.min(560, window.innerHeight - e.clientY)));
+      }
+    };
+    const handlePointerUp = () => setResizingPanel(null);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [resizingPanel]);
+
+  // Global Studio Keyboard Hotkeys
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) {
         return;
       }
       if (e.code === "Space") {
@@ -440,11 +468,35 @@ export default function App() {
         handleTogglePlayPause();
       } else if (e.code === "Escape") {
         setPreviewScene(null);
+      } else if (e.code === "ArrowLeft") {
+        e.preventDefault();
+        handleSeek(Math.max(0, currentTime - (e.shiftKey ? 5.0 : 0.5)));
+      } else if (e.code === "ArrowRight") {
+        e.preventDefault();
+        handleSeek(Math.min(duration, currentTime + (e.shiftKey ? 5.0 : 0.5)));
+      } else if (e.key === "=" || e.key === "+") {
+        e.preventDefault();
+        setTimelineZoom((z) => Math.min(8.0, Number((z + 0.5).toFixed(2))));
+      } else if (e.key === "-") {
+        e.preventDefault();
+        setTimelineZoom((z) => Math.max(1.0, Number((z - 0.5).toFixed(2))));
+      } else if ((e.key === "s" || e.key === "S") && !e.metaKey && !e.ctrlKey) {
+        if (timeline && selectedCutIndex !== null && timeline.cuts[selectedCutIndex]) {
+          e.preventDefault();
+          handleUpdateTimelineCuts(splitCutAtTime(timeline.cuts, selectedCutIndex, currentTime));
+        }
+      } else if (
+        (e.code === "Delete" || e.code === "Backspace") &&
+        selectedCutIndex !== null &&
+        timeline?.cuts[selectedCutIndex]
+      ) {
+        e.preventDefault();
+        handleRemoveTimelineCut(selectedCutIndex);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentTime, playbackRate, isPlaying]);
+  }, [currentTime, duration, playbackRate, isPlaying, timeline, selectedCutIndex]);
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100 select-none overflow-hidden">
@@ -505,8 +557,11 @@ export default function App() {
 
       {/* Main Studio Workspace */}
       <main className="flex-1 flex overflow-hidden">
-        {/* Left Control Sidebar */}
-        <aside className="w-96 border-r border-slate-800 p-5 flex flex-col gap-5 overflow-y-auto bg-slate-900/30 shrink-0">
+        {/* Left Control Sidebar (Resizable) */}
+        <aside
+          style={{ width: sidebarWidth }}
+          className="border-r border-slate-800 p-5 flex flex-col gap-5 overflow-y-auto bg-slate-900/30 shrink-0"
+        >
           {/* Top Sidebar Tab Switcher: Media Library vs Highlights Inspector */}
           <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800">
             <button
@@ -645,6 +700,15 @@ export default function App() {
           </div>
         </aside>
 
+        {/* Vertical Splitter Handle for Sidebar Width */}
+        <div
+          onPointerDown={() => setResizingPanel("sidebar")}
+          title="Drag to resize sidebar width"
+          className={`w-1.5 cursor-col-resize transition shrink-0 ${
+            resizingPanel === "sidebar" ? "bg-indigo-500" : "bg-transparent hover:bg-indigo-500/50"
+          }`}
+        />
+
         {/* Center / Right Stage */}
         <section className="flex-1 flex flex-col overflow-hidden bg-slate-950/40">
           {/* Main Video Monitor Stage */}
@@ -672,8 +736,27 @@ export default function App() {
             </div>
           </div>
 
-          {/* Bottom Docked Multi-Track Timeline Drawer */}
-          <div className="min-h-[270px] max-h-[340px] border-t border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-2.5 shrink-0 overflow-y-auto">
+          {/* Horizontal Splitter Handle for Timeline Height */}
+          <div
+            onPointerDown={() => setResizingPanel("timeline")}
+            title="Drag to resize timeline height"
+            className={`h-1.5 cursor-row-resize transition shrink-0 ${
+              resizingPanel === "timeline" ? "bg-indigo-500" : "bg-transparent hover:bg-indigo-500/50"
+            }`}
+          />
+
+          {/* Bottom Docked Multi-Track Timeline Drawer (Resizable + Shift+Wheel Zoom) */}
+          <div
+            style={{ height: timelineHeight }}
+            onWheel={(e) => {
+              if (e.shiftKey) {
+                e.preventDefault();
+                const step = e.deltaY < 0 ? 0.25 : -0.25;
+                setTimelineZoom((z) => Math.max(1.0, Math.min(8.0, Number((z + step).toFixed(2)))));
+              }
+            }}
+            className="border-t border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-2.5 shrink-0 overflow-y-auto"
+          >
             {/* Header / Info bar + Audio Track Adder + Unified Timeline Zoom */}
             <div className="flex items-center justify-between text-xs text-slate-400 px-1 flex-wrap gap-2">
               <div className="flex items-center gap-3">
@@ -714,17 +797,15 @@ export default function App() {
               </div>
 
               <div className="flex items-center gap-4">
-                {/* Legend */}
-                <div className="hidden md:flex items-center gap-3 text-[11px]">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400" /> Downbeats
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-indigo-400" /> Beats
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-rose-500" /> Drop Energy
-                  </span>
+                {/* Legend & Hotkey Hint */}
+                <div className="hidden lg:flex items-center gap-3 text-[10px] text-slate-500 font-mono">
+                  <span>Shift+Wheel: Zoom</span>
+                  <span>•</span>
+                  <span>Space: Play</span>
+                  <span>•</span>
+                  <span>S: Split</span>
+                  <span>•</span>
+                  <span>Del: Remove</span>
                 </div>
 
                 {/* Unified Overall Timeline Zoom (Audio + Video Together) */}
