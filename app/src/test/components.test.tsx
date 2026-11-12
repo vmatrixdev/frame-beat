@@ -48,21 +48,23 @@ describe("React UI Components", () => {
       expect(screen.getByText("6 scenes")).toBeInTheDocument();
     });
 
-    it("renders import catalog button and accepts scenes catalog json files", () => {
-      const handleImportCatalog = vi.fn();
+    it("renders inspect highlights button when totalScenes > 0", () => {
+      const handleViewHighlights = vi.fn();
       render(
         <DropZones
           audioFile={null}
-          videoDir={null}
+          videoDir="family_media"
+          totalScenes={5}
           onSelectAudio={vi.fn()}
           onSelectVideoDir={vi.fn()}
-          onImportScenesCatalog={handleImportCatalog}
+          onViewHighlights={handleViewHighlights}
         />
       );
 
-      const importBtn = screen.getByTestId("import-catalog-button");
-      expect(importBtn).toBeInTheDocument();
-      expect(screen.getByText("Import Catalog (.json)")).toBeInTheDocument();
+      expect(screen.queryByTestId("import-catalog-button")).not.toBeInTheDocument();
+      const btn = screen.getByText("Inspect Highlights (5)");
+      fireEvent.click(btn);
+      expect(handleViewHighlights).toHaveBeenCalledTimes(1);
     });
   });
 

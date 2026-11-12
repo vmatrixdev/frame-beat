@@ -3,7 +3,6 @@ import {
   Music,
   Film,
   Loader2,
-  FileJson,
   Upload,
 } from "lucide-react";
 
@@ -36,7 +35,6 @@ export const DropZones: React.FC<DropZonesProps> = ({
 }) => {
   const audioInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
-  const catalogInputRef = useRef<HTMLInputElement>(null);
 
   const [isDraggingAudio, setIsDraggingAudio] = useState(false);
   const [isDraggingVideo, setIsDraggingVideo] = useState(false);
@@ -69,16 +67,6 @@ export const DropZones: React.FC<DropZonesProps> = ({
         ? `${files.length} media items`
         : files[0].name;
       onSelectVideoDir(dirName, files);
-    }
-  };
-
-  const handleCatalogFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      if (onImportScenesCatalog) {
-        onImportScenesCatalog(file);
-      }
-      e.target.value = "";
     }
   };
 
@@ -186,38 +174,16 @@ export const DropZones: React.FC<DropZonesProps> = ({
         </div>
       </div>
 
-      {/* Compact Secondary Action Row: Import Catalog JSON & Inspect Highlights */}
-      <div className="flex items-center gap-2">
+      {totalScenes !== undefined && totalScenes > 0 && onViewHighlights && (
         <button
           type="button"
-          onClick={() => catalogInputRef.current?.click()}
-          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-medium text-purple-300 border border-slate-800 transition"
-          title="Import pre-analyzed PySceneDetect scenes catalog JSON"
-          data-testid="import-catalog-button"
+          onClick={onViewHighlights}
+          className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-950/50 hover:bg-purple-900/50 border border-purple-500/30 text-[11px] font-medium text-purple-300 transition"
         >
-          <FileJson className="w-3.5 h-3.5 text-purple-400" />
-          Import Catalog (.json)
+          <Film className="w-3.5 h-3.5 text-purple-400" />
+          Inspect Highlights ({totalScenes})
         </button>
-
-        {totalScenes !== undefined && totalScenes > 0 && onViewHighlights && (
-          <button
-            type="button"
-            onClick={onViewHighlights}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-purple-950/50 hover:bg-purple-900/50 border border-purple-500/30 text-[11px] font-medium text-purple-300 transition"
-          >
-            <Film className="w-3.5 h-3.5 text-purple-400" />
-            Highlights ({totalScenes})
-          </button>
-        )}
-
-        <input
-          type="file"
-          ref={catalogInputRef}
-          accept=".json,application/json"
-          className="hidden"
-          onChange={handleCatalogFileChange}
-        />
-      </div>
+      )}
     </div>
   );
 };

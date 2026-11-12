@@ -378,16 +378,6 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
           </div>
         )}
 
-        {/* Overlay Frame HUD (Top-Right) */}
-        {!previewScene && (
-          <div className="absolute top-4 right-4 flex items-center gap-2 pointer-events-none">
-            <div className="px-2.5 py-1 rounded-md bg-slate-950/80 backdrop-blur border border-slate-800 text-xs font-mono text-emerald-400 flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5" />
-              <span>24 FPS • Frame-Accurate</span>
-            </div>
-          </div>
-        )}
-
         {/* Play/Pause Central Click Area (only in timeline mode) */}
         {!previewScene && (
           <button

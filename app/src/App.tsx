@@ -3,9 +3,7 @@ import {
   Download,
   Layers,
   Sparkles,
-  CheckCircle2,
   Loader2,
-  Cpu,
   Film,
   FolderOpen,
   ZoomIn,
@@ -682,22 +680,6 @@ export default function App() {
               />
             </div>
           )}
-
-          {/* Section 3: Engine Connection Status */}
-          <div className="mt-auto p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-400 flex flex-col gap-2">
-            <div className="flex items-center justify-between font-semibold text-slate-300">
-              <span className="flex items-center gap-1.5">
-                <Cpu className="w-3.5 h-3.5 text-indigo-400" />
-                Python Sidecar Engine
-              </span>
-              <span className="text-emerald-400 flex items-center gap-1 text-[11px]">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Ready
-              </span>
-            </div>
-            <div className="text-[11px] text-slate-400 leading-relaxed">
-              Decoupled media analysis running librosa, PySceneDetect, and FFmpeg filter complexes.
-            </div>
-          </div>
         </aside>
 
         {/* Vertical Splitter Handle for Sidebar Width */}
