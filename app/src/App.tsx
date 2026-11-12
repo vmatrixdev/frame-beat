@@ -6,11 +6,14 @@ import {
   CheckCircle2,
   Loader2,
   Cpu,
+  Film,
+  FolderOpen,
 } from "lucide-react";
-import type { BeatsData, ScenesCatalog, Timeline } from "./types/schemas";
+import type { BeatsData, ScenesCatalog, Timeline, SceneCut } from "./types/schemas";
 import { engineClient, isTauriEnvironment } from "./services/engineClient";
 import { audioEngine } from "./services/audioEngine";
 import { DropZones } from "./components/DropZones";
+import { HighlightsList } from "./components/HighlightsList";
 import { WaveformVisualizer } from "./components/WaveformVisualizer";
 import { TimelineTrack } from "./components/TimelineTrack";
 import { VideoPreview } from "./components/VideoPreview";
@@ -40,6 +43,8 @@ export default function App() {
   const [beats, setBeats] = useState<BeatsData | null>(null);
   const [scenes, setScenes] = useState<ScenesCatalog | null>(null);
   const [timeline, setTimeline] = useState<Timeline | null>(null);
+  const [previewScene, setPreviewScene] = useState<SceneCut | null>(null);
+  const [sidebarTab, setSidebarTab] = useState<"library" | "highlights">("library");
 
   // Playback & Scrubber state
   const [currentTime, setCurrentTime] = useState<number>(0);
@@ -93,6 +98,9 @@ export default function App() {
     try {
       const scenesResult = await engineClient.analyzeScenes(dir, undefined, files);
       setScenes(scenesResult);
+      if (scenesResult.scenes.length > 0) {
+        setPreviewScene(scenesResult.scenes[0]);
+      }
     } catch (err) {
       console.error("Scene analysis failed:", err);
     } finally {
@@ -108,25 +116,12 @@ export default function App() {
       const catalog = engineClient.importScenesCatalog(text);
       setScenes(catalog);
       setVideoDir(file.name);
+      if (catalog.scenes.length > 0) {
+        setPreviewScene(catalog.scenes[0]);
+      }
     } catch (err) {
       console.error("Failed to import scenes catalog:", err);
       alert(err instanceof Error ? err.message : "Failed to import scenes catalog JSON");
-    } finally {
-      setIsAnalyzingScenes(false);
-    }
-  };
-
-  // Run PySceneDetect on any local filesystem directory path
-  const handleAnalyzeDirectoryPath = async (dirPath: string) => {
-    if (!dirPath.trim()) return;
-    setIsAnalyzingScenes(true);
-    setVideoDir(dirPath);
-    try {
-      const catalog = await engineClient.analyzeScenes(dirPath);
-      setScenes(catalog);
-    } catch (err) {
-      console.error("Failed to analyze directory:", err);
-      alert(`Directory analysis failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsAnalyzingScenes(false);
     }
@@ -145,6 +140,9 @@ export default function App() {
     setIsPlaying(false);
     audioEngine.stop();
     audioEngine.setSyntheticBeats(fixtures.beats);
+    if (fixtures.scenes.scenes.length > 0) {
+      setPreviewScene(fixtures.scenes.scenes[0]);
+    }
   };
 
   // Direct AMV Timeline with Gemini LLM / Procedural Director
@@ -262,7 +260,7 @@ export default function App() {
     };
   }, [isPlaying, updatePlayback]);
 
-  // Spacebar hotkey to toggle Play/Pause
+  // Keyboard hotkeys: Spacebar (Play/Pause), Escape (Return from Highlight Preview)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
@@ -271,6 +269,8 @@ export default function App() {
       if (e.code === "Space") {
         e.preventDefault();
         handleTogglePlayPause();
+      } else if (e.code === "Escape") {
+        setPreviewScene(null);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -338,76 +338,115 @@ export default function App() {
       <main className="flex-1 flex overflow-hidden">
         {/* Left Control Sidebar */}
         <aside className="w-96 border-r border-slate-800 p-5 flex flex-col gap-5 overflow-y-auto bg-slate-900/30 shrink-0">
-          {/* Section 1: Source Inputs & DropZones */}
-          <div>
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5">
-              1. Source Inputs
-            </h2>
-            <DropZones
-              audioFile={audioFile}
-              videoDir={videoDir}
-              isAnalyzingAudio={isAnalyzingAudio}
-              isAnalyzingScenes={isAnalyzingScenes}
-              audioDuration={beats?.duration_sec}
-              audioBpm={beats?.tempo_bpm}
-              totalScenes={scenes?.total_scenes}
-              onSelectAudio={handleSelectAudio}
-              onSelectVideoDir={handleSelectVideoDir}
-              onLoadDemoFixtures={handleLoadDemoFixtures}
-              onImportScenesCatalog={handleImportScenesCatalog}
-              onAnalyzeDirectoryPath={handleAnalyzeDirectoryPath}
-            />
-          </div>
-
-          {/* Section 2: LLM Director Directive */}
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                2. Director Directive & Style
-              </h2>
-              <span className="text-[10px] text-indigo-400 font-mono">Gemini Flash</span>
-            </div>
-
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={3}
-              placeholder="Tell the Director how to pace and cut: e.g. 'Wedding montage with soft crossfades', 'Children growing up memories', 'Birthday celebration', or 'Fast-paced action cuts'..."
-              className="w-full text-xs rounded-xl bg-slate-950 border border-slate-800 p-3 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-200 placeholder-slate-500 resize-none"
-            />
-
-            {/* Quick Directive Chips */}
-            <div className="flex flex-wrap gap-1.5">
-              {PROMPT_PRESETS.map((p, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setPrompt(p)}
-                  className="text-[10px] px-2 py-1 rounded-md bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/50 text-slate-300 transition text-left truncate max-w-full"
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-
-            {/* Generate Action Button */}
+          {/* Top Sidebar Tab Switcher: Media Library vs Highlights Inspector */}
+          <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800">
             <button
-              onClick={handleGenerateTimeline}
-              disabled={isDirecting}
-              className="w-full py-2.5 mt-2 rounded-xl bg-gradient-to-r from-indigo-600 to-rose-600 hover:from-indigo-500 hover:to-rose-500 disabled:opacity-50 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition active:scale-[0.99]"
+              onClick={() => setSidebarTab("library")}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5 ${
+                sidebarTab === "library"
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-semibold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
             >
-              {isDirecting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Directing Beat-Synced Timeline...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  Generate Montage Timeline
-                </>
-              )}
+              <FolderOpen className="w-3.5 h-3.5" />
+              Media Library
+            </button>
+            <button
+              onClick={() => setSidebarTab("highlights")}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5 ${
+                sidebarTab === "highlights"
+                  ? "bg-purple-600 text-white shadow-md shadow-purple-600/30 font-semibold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Film className="w-3.5 h-3.5 text-purple-300" />
+              Highlights {scenes ? `(${scenes.total_scenes})` : ""}
             </button>
           </div>
+
+          {sidebarTab === "library" ? (
+            <>
+              {/* Section 1: Source Inputs & DropZones */}
+              <div>
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5">
+                  1. Source Inputs
+                </h2>
+                <DropZones
+                  audioFile={audioFile}
+                  videoDir={videoDir}
+                  isAnalyzingAudio={isAnalyzingAudio}
+                  isAnalyzingScenes={isAnalyzingScenes}
+                  audioDuration={beats?.duration_sec}
+                  audioBpm={beats?.tempo_bpm}
+                  totalScenes={scenes?.total_scenes}
+                  onSelectAudio={handleSelectAudio}
+                  onSelectVideoDir={handleSelectVideoDir}
+                  onLoadDemoFixtures={handleLoadDemoFixtures}
+                  onImportScenesCatalog={handleImportScenesCatalog}
+                  onViewHighlights={() => setSidebarTab("highlights")}
+                />
+              </div>
+
+              {/* Section 2: LLM Director Directive */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    2. Director Directive & Style
+                  </h2>
+                  <span className="text-[10px] text-indigo-400 font-mono">Gemini Flash</span>
+                </div>
+
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  rows={3}
+                  placeholder="Tell the Director how to pace and cut: e.g. 'Wedding montage with soft crossfades', 'Children growing up memories', 'Birthday celebration', or 'Fast-paced action cuts'..."
+                  className="w-full text-xs rounded-xl bg-slate-950 border border-slate-800 p-3 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-200 placeholder-slate-500 resize-none"
+                />
+
+                {/* Quick Directive Chips */}
+                <div className="flex flex-wrap gap-1.5">
+                  {PROMPT_PRESETS.map((p, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setPrompt(p)}
+                      className="text-[10px] px-2 py-1 rounded-md bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/50 text-slate-300 transition text-left truncate max-w-full"
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Generate Action Button */}
+                <button
+                  onClick={handleGenerateTimeline}
+                  disabled={isDirecting}
+                  className="w-full py-2.5 mt-2 rounded-xl bg-gradient-to-r from-indigo-600 to-rose-600 hover:from-indigo-500 hover:to-rose-500 disabled:opacity-50 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition active:scale-[0.99]"
+                >
+                  {isDirecting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Directing Beat-Synced Timeline...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      Generate Montage Timeline
+                    </>
+                  )}
+                </button>
+              </div>
+            </>
+          ) : (
+            /* Highlights List Panel */
+            <div className="flex-1 flex flex-col min-h-0">
+              <HighlightsList
+                catalog={scenes}
+                activeScene={previewScene}
+                onSelectScene={(scene) => setPreviewScene(scene)}
+              />
+            </div>
+          )}
 
           {/* Section 3: Engine Connection Status */}
           <div className="mt-auto p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-400 flex flex-col gap-2">
@@ -439,6 +478,8 @@ export default function App() {
                 duration={duration}
                 volume={volume}
                 isMuted={isMuted}
+                previewScene={previewScene}
+                onClearPreviewScene={() => setPreviewScene(null)}
                 onPlayPause={handleTogglePlayPause}
                 onSeek={handleSeek}
                 onChangePlaybackRate={handleChangePlaybackRate}

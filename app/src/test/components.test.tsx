@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { DropZones } from "../components/DropZones";
+import { HighlightsList } from "../components/HighlightsList";
 import { WaveformVisualizer } from "../components/WaveformVisualizer";
 import { TimelineTrack } from "../components/TimelineTrack";
 import { VideoPreview, formatTimecode } from "../components/VideoPreview";
@@ -63,14 +64,12 @@ describe("React UI Components", () => {
           onSelectVideoDir={vi.fn()}
           onLoadDemoFixtures={vi.fn()}
           onImportScenesCatalog={handleImportCatalog}
-          onAnalyzeDirectoryPath={vi.fn()}
         />
       );
 
       const importBtn = screen.getByTestId("import-catalog-button");
       expect(importBtn).toBeInTheDocument();
       expect(screen.getByText("Import Catalog (.json)")).toBeInTheDocument();
-      expect(screen.getByText("Analyze Folder...")).toBeInTheDocument();
     });
   });
 
@@ -174,6 +173,99 @@ describe("React UI Components", () => {
       const rateBtn = screen.getByText("1.5x");
       fireEvent.click(rateBtn);
       expect(handleChangeRate).toHaveBeenCalledWith(1.5);
+    });
+
+    it("renders static analysis HUD when previewing a specific highlight cut", () => {
+      const handleClear = vi.fn();
+      const mockScene = {
+        scene_id: 3,
+        source_file: "/media/wedding_dance.mp4",
+        start_time: 12.5,
+        end_time: 16.5,
+        duration: 4.0,
+        media_type: "video" as const,
+        is_still_image: false,
+        sharpness_score: 245.8,
+        brightness_score: 130.5,
+        motion_score: 42.1,
+      };
+
+      render(
+        <VideoPreview
+          timeline={null}
+          currentTime={0}
+          isPlaying={false}
+          playbackRate={1.0}
+          previewScene={mockScene}
+          onClearPreviewScene={handleClear}
+          onPlayPause={vi.fn()}
+          onSeek={vi.fn()}
+          onChangePlaybackRate={vi.fn()}
+        />
+      );
+
+      // Verify Static Analysis HUD presence
+      expect(screen.getByText("HIGHLIGHT #4")).toBeInTheDocument();
+      expect(screen.getByText("PySceneDetect & OpenCV Static Analysis HUD")).toBeInTheDocument();
+      expect(screen.getByText("wedding_dance.mp4")).toBeInTheDocument();
+      expect(screen.getByText("245.8")).toBeInTheDocument();
+      expect(screen.getByText("130.5 / 255")).toBeInTheDocument();
+      expect(screen.getByText("42.1")).toBeInTheDocument();
+
+      // Return to timeline
+      const returnBtn = screen.getByText("Return to Timeline");
+      fireEvent.click(returnBtn);
+      expect(handleClear).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("HighlightsList Component", () => {
+    it("renders catalog scenes with metrics and triggers selection", () => {
+      const handleSelect = vi.fn();
+      const mockCatalog = {
+        source_files: ["/media/clip1.mp4", "/media/photo1.jpg"],
+        total_scenes: 2,
+        scenes: [
+          {
+            scene_id: 0,
+            source_file: "/media/clip1.mp4",
+            start_time: 0.0,
+            end_time: 4.0,
+            duration: 4.0,
+            media_type: "video" as const,
+            is_still_image: false,
+            sharpness_score: 180.0,
+            brightness_score: 110.0,
+          },
+          {
+            scene_id: 1,
+            source_file: "/media/photo1.jpg",
+            start_time: 0.0,
+            end_time: 0.0,
+            duration: 0.0,
+            media_type: "image" as const,
+            is_still_image: true,
+            sharpness_score: 95.0,
+            brightness_score: 140.0,
+          },
+        ],
+      };
+
+      render(
+        <HighlightsList
+          catalog={mockCatalog}
+          activeScene={null}
+          onSelectScene={handleSelect}
+        />
+      );
+
+      expect(screen.getByText("2 items (1 videos • 1 photos)")).toBeInTheDocument();
+      expect(screen.getByText("#1 • clip1.mp4")).toBeInTheDocument();
+      expect(screen.getByText("#2 • photo1.jpg")).toBeInTheDocument();
+
+      // Click photo item to select
+      fireEvent.click(screen.getByText("#2 • photo1.jpg"));
+      expect(handleSelect).toHaveBeenCalledWith(mockCatalog.scenes[1]);
     });
   });
 

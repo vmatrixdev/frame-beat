@@ -116,6 +116,66 @@ function amvEngineVitePlugin(): Plugin {
         });
       });
 
+      // Stream local media files (MP4/WebM/MOV/JPG/PNG) with Range support for HTML5 video
+      server.middlewares.use("/api/media-stream", (req, res) => {
+        try {
+          const urlObj = new URL(req.url || "", "http://localhost:1420");
+          let filePath = urlObj.searchParams.get("path") || "";
+          if (!filePath) {
+            res.statusCode = 400;
+            return res.end("Missing path parameter");
+          }
+          if (filePath.startsWith("~")) {
+            filePath = path.join(os.homedir(), filePath.slice(1));
+          }
+          if (!fs.existsSync(filePath)) {
+            res.statusCode = 404;
+            return res.end("File not found on disk");
+          }
+
+          const stat = fs.statSync(filePath);
+          const ext = path.extname(filePath).toLowerCase();
+          const mimeTypes: Record<string, string> = {
+            ".mp4": "video/mp4",
+            ".m4v": "video/mp4",
+            ".webm": "video/webm",
+            ".mov": "video/quicktime",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".webp": "image/webp",
+            ".mp3": "audio/mpeg",
+            ".wav": "audio/wav",
+          };
+          const contentType = mimeTypes[ext] || "application/octet-stream";
+          const range = req.headers.range;
+
+          if (range) {
+            const parts = range.replace(/bytes=/, "").split("-");
+            const start = parseInt(parts[0], 10);
+            const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+            const chunksize = end - start + 1;
+            const file = fs.createReadStream(filePath, { start, end });
+            res.writeHead(206, {
+              "Content-Range": `bytes ${start}-${end}/${stat.size}`,
+              "Accept-Ranges": "bytes",
+              "Content-Length": chunksize,
+              "Content-Type": contentType,
+            });
+            file.pipe(res);
+          } else {
+            res.writeHead(200, {
+              "Content-Length": stat.size,
+              "Content-Type": contentType,
+            });
+            fs.createReadStream(filePath).pipe(res);
+          }
+        } catch (e) {
+          res.statusCode = 500;
+          res.end(String(e));
+        }
+      });
+
       // Serve cache/thumbnails for keyframe previews in browser
       server.middlewares.use("/cache/thumbnails", (req, res, next) => {
         const projectRoot = path.resolve(__dirname, "..");

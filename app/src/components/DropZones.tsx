@@ -8,8 +8,6 @@ import {
   FolderOpen,
   RefreshCw,
   FileJson,
-  FolderSearch,
-  X,
 } from "lucide-react";
 
 export interface DropZonesProps {
@@ -24,7 +22,7 @@ export interface DropZonesProps {
   onSelectVideoDir: (path: string, files?: File[]) => void;
   onLoadDemoFixtures: () => void;
   onImportScenesCatalog?: (file: File) => void;
-  onAnalyzeDirectoryPath?: (path: string) => void;
+  onViewHighlights?: () => void;
 }
 
 export const DropZones: React.FC<DropZonesProps> = ({
@@ -39,7 +37,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
   onSelectVideoDir,
   onLoadDemoFixtures,
   onImportScenesCatalog,
-  onAnalyzeDirectoryPath,
+  onViewHighlights,
 }) => {
   const audioInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -47,8 +45,6 @@ export const DropZones: React.FC<DropZonesProps> = ({
 
   const [isDraggingAudio, setIsDraggingAudio] = useState(false);
   const [isDraggingVideo, setIsDraggingVideo] = useState(false);
-  const [showPathInput, setShowPathInput] = useState(false);
-  const [folderPath, setFolderPath] = useState("");
 
   const handleAudioDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -78,6 +74,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
         : files.length > 1
         ? `${files.length} media items`
         : files[0].name;
+      // Auto-analyze dropped assets immediately
       onSelectVideoDir(dirName, files);
     }
   };
@@ -92,13 +89,8 @@ export const DropZones: React.FC<DropZonesProps> = ({
     }
   };
 
-  const handleRunDirectoryAnalysis = () => {
-    if (!folderPath.trim() || !onAnalyzeDirectoryPath) return;
-    onAnalyzeDirectoryPath(folderPath.trim());
-  };
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-3.5">
       {/* Demo Fixtures Fast-Track Button */}
       <div className="p-3 rounded-xl bg-gradient-to-r from-indigo-950/60 to-purple-950/60 border border-indigo-500/30 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -121,7 +113,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
       </div>
 
       <div className="space-y-3">
-        {/* Audio Track Drop Zone */}
+        {/* Audio Track Drop Zone - Auto-analyzes on drop */}
         <div
           data-testid="audio-drop-zone"
           onDragOver={(e) => {
@@ -164,7 +156,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium truncate text-slate-200">
-                  {audioFile ? audioFile.split("/").pop() : "Select Audio Soundtrack"}
+                  {audioFile ? audioFile.split("/").pop() : "Drop Soundtrack Audio"}
                 </span>
                 {audioFile && !isAnalyzingAudio && (
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -172,7 +164,9 @@ export const DropZones: React.FC<DropZonesProps> = ({
               </div>
               <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
                 {isAnalyzingAudio ? (
-                  <span className="text-indigo-400 font-mono">Computing tempo & beats...</span>
+                  <span className="text-indigo-400 font-mono animate-pulse">
+                    Auto-analyzing tempo, beats & energy...
+                  </span>
                 ) : audioFile ? (
                   <>
                     <span>{audioDuration ? `${audioDuration.toFixed(1)}s` : "WAV / MP3"}</span>
@@ -183,7 +177,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
                     )}
                   </>
                 ) : (
-                  <span>WAV, MP3, FLAC • Beats detection</span>
+                  <span>Auto-analyzes tempo & beats on drop (WAV, MP3, FLAC)</span>
                 )}
               </div>
             </div>
@@ -212,83 +206,25 @@ export const DropZones: React.FC<DropZonesProps> = ({
           />
         </div>
 
-        {/* Video & Visuals Section Header with Repeatable Actions */}
+        {/* Visual Source Media Section Header */}
         <div className="pt-1">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-              Visual Source Media
+              Visual Source Media (Auto-Cataloged)
             </span>
-            <div className="flex items-center gap-1.5">
-              {/* Universal Import Catalog JSON */}
-              <button
-                type="button"
-                onClick={() => catalogInputRef.current?.click()}
-                className="flex items-center gap-1 px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 active:scale-95 text-[11px] font-medium text-purple-300 border border-slate-700/80 transition"
-                title="Import pre-analyzed PySceneDetect scenes catalog JSON"
-                data-testid="import-catalog-button"
-              >
-                <FileJson className="w-3.5 h-3.5 text-purple-400" />
-                Import Catalog (.json)
-              </button>
-
-              {/* Universal Analyze Directory on Disk */}
-              {onAnalyzeDirectoryPath && (
-                <button
-                  type="button"
-                  onClick={() => setShowPathInput(!showPathInput)}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border transition ${
-                    showPathInput
-                      ? "bg-purple-950/70 border-purple-500/50 text-purple-300"
-                      : "bg-slate-800 hover:bg-slate-700 border-slate-700/80 text-slate-300"
-                  }`}
-                  title="Analyze any local folder path with PySceneDetect"
-                >
-                  <FolderSearch className="w-3.5 h-3.5 text-indigo-400" />
-                  Analyze Folder...
-                </button>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => catalogInputRef.current?.click()}
+              className="flex items-center gap-1 px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 active:scale-95 text-[11px] font-medium text-purple-300 border border-slate-700/80 transition"
+              title="Import pre-analyzed PySceneDetect scenes catalog JSON"
+              data-testid="import-catalog-button"
+            >
+              <FileJson className="w-3.5 h-3.5 text-purple-400" />
+              Import Catalog (.json)
+            </button>
           </div>
 
-          {/* Expandable Directory Path Input */}
-          {showPathInput && onAnalyzeDirectoryPath && (
-            <div className="mb-2 p-2 rounded-xl bg-slate-900 border border-purple-500/30 flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-150">
-              <input
-                type="text"
-                placeholder="Path e.g. ~/Downloads/Photos-1-001 or /clips"
-                value={folderPath}
-                onChange={(e) => setFolderPath(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleRunDirectoryAnalysis();
-                }}
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-200 placeholder-slate-500 font-mono focus:outline-none focus:border-purple-500"
-              />
-              <button
-                type="button"
-                onClick={handleRunDirectoryAnalysis}
-                disabled={!folderPath.trim() || isAnalyzingScenes}
-                className="px-3 py-1 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 rounded-lg text-xs font-medium text-white transition flex items-center gap-1 shadow-sm"
-              >
-                {isAnalyzingScenes ? (
-                  <>
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Scanning...
-                  </>
-                ) : (
-                  "Run Detect"
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowPathInput(false)}
-                className="p-1 text-slate-500 hover:text-slate-300 rounded"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-
-          {/* Video Directory & Media Drop Zone */}
+          {/* Video & Photo Drop Zone - Auto-analyzes on drop */}
           <div
             data-testid="video-drop-zone"
             onDragOver={(e) => {
@@ -331,7 +267,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium truncate text-slate-200">
-                    {videoDir ? videoDir.split("/").pop() : "Select Source Videos or Images"}
+                    {videoDir ? videoDir.split("/").pop() : "Drop Source Videos or Images"}
                   </span>
                   {videoDir && !isAnalyzingScenes && (
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -339,10 +275,12 @@ export const DropZones: React.FC<DropZonesProps> = ({
                 </div>
                 <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
                   {isAnalyzingScenes ? (
-                    <span className="text-purple-400 font-mono">Running Scene Detect & Metrics...</span>
+                    <span className="text-purple-400 font-mono animate-pulse">
+                      Auto-analyzing cuts, sharpness & brightness...
+                    </span>
                   ) : videoDir ? (
                     <>
-                      <span>Media source</span>
+                      <span>Cataloged media</span>
                       {totalScenes !== undefined && (
                         <span className="text-purple-300 font-mono bg-purple-950/60 px-1.5 py-0.2 rounded border border-purple-800/50">
                           {totalScenes} scenes
@@ -350,14 +288,14 @@ export const DropZones: React.FC<DropZonesProps> = ({
                       )}
                     </>
                   ) : (
-                    <span>Drop clips, images, or .json catalog</span>
+                    <span>Auto-catalogs on drop (MP4, MKV, MOV, JPG, PNG)</span>
                   )}
                 </div>
               </div>
 
               {videoDir && (
                 <button
-                  title="Change Directory"
+                  title="Change Media Folder"
                   onClick={(e) => {
                     e.stopPropagation();
                     onSelectVideoDir("anime_action_clips");
@@ -401,6 +339,23 @@ export const DropZones: React.FC<DropZonesProps> = ({
               onChange={handleCatalogFileChange}
             />
           </div>
+
+          {/* Quick link to Highlights inspector when scenes are cataloged */}
+          {totalScenes !== undefined && totalScenes > 0 && onViewHighlights && (
+            <button
+              type="button"
+              onClick={onViewHighlights}
+              className="w-full mt-2 py-1.5 px-3 rounded-lg bg-purple-950/40 hover:bg-purple-900/40 border border-purple-500/30 flex items-center justify-between text-xs text-purple-300 transition group"
+            >
+              <span className="flex items-center gap-1.5 font-medium">
+                <Film className="w-3.5 h-3.5 text-purple-400" />
+                Inspect {totalScenes} Highlights in Main Player HUD
+              </span>
+              <span className="text-[11px] font-semibold text-purple-400 group-hover:translate-x-0.5 transition-transform">
+                ➔
+              </span>
+            </button>
+          )}
         </div>
       </div>
     </div>
