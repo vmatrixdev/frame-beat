@@ -93,3 +93,20 @@ Autonomous verification, packaging scripts, CI/CD, and developer documentation.
 - [x] **4.4: Technical Architecture & User Documentation**
   - Comprehensive 3-phase deterministic architecture specification (`docs/ARCHITECTURE.md`).
   - User and developer guide detailing CLI usage, Desktop UI, codecs, and NLE workflows (`docs/USER_GUIDE.md`).
+
+---
+
+## Phase 5: Manual Segmenting, Contextual Analyzer Plugins & Annotations (Future Ideas)
+- [ ] **5.1: Manual Highlight / Segment Creation**
+  - Allow users to set custom In/Out markers on any raw video in the player to create their own highlight segments alongside or instead of automatic PySceneDetect cuts.
+- [ ] **5.2: Contextual Menus for On-Demand Static Analysis**
+  - Add right-click / contextual menus on raw assets and individual highlight segments to manually run or re-run any analyzer (PySceneDetect, Sharpness/Brightness/Motion, MediaPipe Face & Emotion, etc.).
+  - Ensure every automatic import-time analysis step is also individually runnable/re-runnable manually on any selected item.
+- [ ] **5.3: Configurable Sampling Rate & Analyzer Settings**
+  - Expose per-run or global settings to increase/decrease frame sampling rate (e.g., midpoint, 5-frame, 1 fps, or dense sampling) and confidence thresholds for video segments.
+- [ ] **5.4: Pluggable Static Analyzer Architecture**
+  - Design a plugin interface so new local static analyzers can be added cleanly (e.g., color palette extraction, speech/laughter detection, object/scene tagging, camera motion).
+- [ ] **5.5: Manual User Annotations & Overrides**
+  - Allow users to manually annotate highlights (custom tags, notes, ratings, or emotion/subject overrides) stored in the catalog JSON.
+- [ ] **5.6: Scoped AI Director Role (Architectural Question)**
+  - Revisit when the cloud AI Director is needed (e.g., full-timeline creative pacing vs. localized section suggestions vs. local rule-based/annotation-driven assembly without LLM calls).
