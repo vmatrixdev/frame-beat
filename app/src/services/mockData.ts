@@ -44,6 +44,41 @@ export const DEMO_BEATS: BeatsData = {
   ],
 };
 
+/**
+ * Generates dynamic beat markers and energy segments for any given duration.
+ */
+export function generateBeatsForDuration(durationSec: number, tempoBpm = 128.0): BeatsData {
+  const beatInterval = 60.0 / tempoBpm;
+  const beats: number[] = [];
+  const downbeats: number[] = [];
+
+  for (let t = 0; t < durationSec; t += beatInterval) {
+    beats.push(Number(t.toFixed(3)));
+  }
+  for (let t = 0; t < durationSec; t += beatInterval * 4) {
+    downbeats.push(Number(t.toFixed(3)));
+  }
+
+  // Divide into 5 dynamic musical segments
+  const segDur = durationSec / 5;
+  const energy_segments = [
+    { start: 0, end: Number(segDur.toFixed(2)), level: "intro" as const, label: "Intro - Atmospheric Build" },
+    { start: Number(segDur.toFixed(2)), end: Number((segDur * 2).toFixed(2)), level: "medium" as const, label: "Verse 1 - Rhythmic Drive" },
+    { start: Number((segDur * 2).toFixed(2)), end: Number((segDur * 3).toFixed(2)), level: "build" as const, label: "Pre-Chorus Build" },
+    { start: Number((segDur * 3).toFixed(2)), end: Number((segDur * 4.2).toFixed(2)), level: "drop" as const, label: "Chorus Drop - Maximum Energy" },
+    { start: Number((segDur * 4.2).toFixed(2)), end: Number(durationSec.toFixed(2)), level: "outro" as const, label: "Outro - Resolution" },
+  ];
+
+  return {
+    duration_sec: Number(durationSec.toFixed(2)),
+    tempo_bpm: tempoBpm,
+    time_signature: "4/4",
+    downbeats,
+    beats,
+    energy_segments,
+  };
+}
+
 export const DEMO_SCENES: ScenesCatalog = {
   source_files: [
     "anime_raws/episode_01_cyber_city.mp4",

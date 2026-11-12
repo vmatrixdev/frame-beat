@@ -63,13 +63,16 @@ export default function App() {
   // Handle Audio Selection & Analysis
   const handleSelectAudio = async (path: string, file?: File) => {
     setAudioFile(path);
+    let detectedDuration: number | undefined = undefined;
+
     if (file) {
       const objectUrl = URL.createObjectURL(file);
-      audioEngine.loadAudioSource(objectUrl);
+      detectedDuration = await audioEngine.loadAudioSource(objectUrl);
     }
+
     setIsAnalyzingAudio(true);
     try {
-      const beatsResult = await engineClient.analyzeSoundtrack(path);
+      const beatsResult = await engineClient.analyzeSoundtrack(path, detectedDuration);
       setBeats(beatsResult);
       if (!file) {
         audioEngine.setSyntheticBeats(beatsResult);

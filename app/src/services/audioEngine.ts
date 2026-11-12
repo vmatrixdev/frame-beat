@@ -63,13 +63,12 @@ class AudioEngine {
     return this.volume;
   }
 
-  public loadAudioSource(url: string) {
+  public async loadAudioSource(url: string): Promise<number> {
     this.initContext();
     this.stop();
 
     if (!this.audioElement) {
       this.audioElement = new Audio();
-      this.audioElement.crossOrigin = "anonymous";
       if (this.ctx && this.gainNode) {
         try {
           this.audioSourceNode = this.ctx.createMediaElementSource(this.audioElement);
@@ -82,6 +81,28 @@ class AudioEngine {
     this.audioElement.src = url;
     this.audioElement.playbackRate = this.playbackRate;
     this.isSynthesizing = false;
+
+    return new Promise<number>((resolve) => {
+      const el = this.audioElement;
+      if (!el) return resolve(16.0);
+
+      const checkDuration = () => {
+        if (el.duration && isFinite(el.duration) && el.duration > 0) {
+          resolve(el.duration);
+        } else {
+          resolve(16.0);
+        }
+      };
+
+      if (el.readyState >= 1 && el.duration && isFinite(el.duration)) {
+        checkDuration();
+      } else {
+        el.onloadedmetadata = checkDuration;
+        setTimeout(() => {
+          checkDuration();
+        }, 1000);
+      }
+    });
   }
 
   public setSyntheticBeats(beats: BeatsData) {

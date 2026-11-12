@@ -18,6 +18,7 @@ import {
   DEMO_SCENES,
   DEMO_TIMELINE,
   generateProceduralTimeline,
+  generateBeatsForDuration,
 } from "./mockData";
 
 export interface EngineClientConfig {
@@ -55,10 +56,13 @@ class EngineClient {
   /**
    * Run media analysis on an audio soundtrack file.
    */
-  async analyzeSoundtrack(audioPath: string): Promise<BeatsData> {
+  async analyzeSoundtrack(audioPath: string, durationSec?: number): Promise<BeatsData> {
     if (this.isMockMode) {
       // Simulate realistic analysis delay (150ms)
       await new Promise((resolve) => setTimeout(resolve, 150));
+      if (durationSec && durationSec > 0) {
+        return generateBeatsForDuration(durationSec, 128.0);
+      }
       return {
         ...DEMO_BEATS,
       };
