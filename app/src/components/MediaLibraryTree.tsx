@@ -11,6 +11,7 @@ import {
   Play,
   Plus,
   ScanFace,
+  SlidersHorizontal,
   Smile,
   Sparkles,
   Video,
@@ -25,6 +26,7 @@ export interface MediaLibraryTreeProps {
   onSelectAudioTrack?: () => void;
   onAddToTimeline?: (scene: SceneCut) => void;
   onReanalyzeScene?: (scene: SceneCut, sampleFrames: number) => void;
+  onOpenClipHighlights?: (sourceFile: string) => void;
 }
 
 interface RawVideoGroup {
@@ -44,6 +46,7 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
   onSelectAudioTrack,
   onAddToTimeline,
   onReanalyzeScene,
+  onOpenClipHighlights,
 }) => {
   const [audioExpanded, setAudioExpanded] = useState(true);
   const [videosExpanded, setVideosExpanded] = useState(true);
@@ -420,6 +423,19 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
             >
               <Plus className="w-3.5 h-3.5 text-indigo-400" />
               <span>Add to Timeline</span>
+            </button>
+          )}
+          {!contextMenu.scene.is_still_image && onOpenClipHighlights && (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenClipHighlights(contextMenu.scene.source_file);
+                setContextMenu(null);
+              }}
+              className="w-full px-3 py-1.5 text-left hover:bg-amber-600/30 flex items-center gap-2 transition"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
+              <span>Clip Highlights...</span>
             </button>
           )}
           {onReanalyzeScene && (

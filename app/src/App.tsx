@@ -33,6 +33,7 @@ import { audioEngine } from "./services/audioEngine";
 import { DropZones } from "./components/DropZones";
 import { MediaLibraryTree } from "./components/MediaLibraryTree";
 import { HighlightsList, type HighlightAnalysisSettings } from "./components/HighlightsList";
+import { ClipHighlightsModal } from "./components/ClipHighlightsModal";
 import { WaveformVisualizer } from "./components/WaveformVisualizer";
 import { TimelineTrack } from "./components/TimelineTrack";
 import { VideoPreview } from "./components/VideoPreview";
@@ -70,6 +71,7 @@ export default function App() {
     targetWindowDuration: 3.5,
     minWindowDuration: 2.0,
   });
+  const [clipHighlightsTarget, setClipHighlightsTarget] = useState<string | null>(null);
 
   // Playback & Scrubber state
   const [currentTime, setCurrentTime] = useState<number>(0);
@@ -206,6 +208,27 @@ export default function App() {
       }
     } catch (err) {
       console.error("Re-analyzing highlights failed:", err);
+    } finally {
+      setIsAnalyzingScenes(false);
+    }
+  };
+
+  // Re-run highlight windowing on a single raw video from the "Clip Highlights..." context menu
+  const handleRegenerateVideoHighlights = async (
+    sourceFile: string,
+    settings: HighlightAnalysisSettings
+  ) => {
+    setHighlightSettings(settings);
+    setIsAnalyzingScenes(true);
+    try {
+      const res = await engineClient.analyzeScenes(sourceFile, undefined, undefined, settings);
+      setScenes((prev) => mergeScenesCatalog(prev, res));
+      if (res.scenes.length > 0) {
+        setPreviewScene(res.scenes[0]);
+      }
+      setClipHighlightsTarget(null);
+    } catch (err) {
+      console.error("Clip highlight re-generation failed:", err);
     } finally {
       setIsAnalyzingScenes(false);
     }
@@ -668,6 +691,7 @@ export default function App() {
                 onSelectAudioTrack={() => setPreviewScene(null)}
                 onAddToTimeline={handleAddSceneToTimeline}
                 onReanalyzeScene={handleReanalyzeScene}
+                onOpenClipHighlights={(sourceFile) => setClipHighlightsTarget(sourceFile)}
               />
 
               {/* Section 2: LLM Director Directive */}
@@ -976,6 +1000,16 @@ export default function App() {
           </div>
         </section>
       </main>
+
+      {/* Clip Highlights Parameter Modal */}
+      <ClipHighlightsModal
+        isOpen={clipHighlightsTarget !== null}
+        sourceFile={clipHighlightsTarget}
+        initialSettings={highlightSettings}
+        isProcessing={isAnalyzingScenes}
+        onClose={() => setClipHighlightsTarget(null)}
+        onApply={handleRegenerateVideoHighlights}
+      />
 
       {/* Export Dialog Modal */}
       {timeline && (
