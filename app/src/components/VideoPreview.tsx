@@ -99,13 +99,14 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
     }
   }, [previewScene]);
 
-  // Sync volume & mute changes to the video element
+  // Sync volume, mute & playbackRate changes to the video element
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.volume = volume;
       videoRef.current.muted = isMuted;
+      videoRef.current.playbackRate = playbackRate;
     }
-  }, [volume, isMuted]);
+  }, [volume, isMuted, playbackRate]);
 
   // Toggle play/pause of the highlight video element
   const handleToggleHighlightPlay = () => {
@@ -172,13 +173,16 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
             ) : (
               <video
                 ref={videoRef}
-                key={previewScene.source_file + previewScene.start_time}
+                key={previewScene.source_file + previewScene.start_time + previewScene.scene_id}
                 src={mediaStreamUrl}
                 poster={previewScene.keyframe_path}
+                controls
                 autoPlay
                 playsInline
                 preload="auto"
                 className="w-full h-full object-contain"
+                onPlay={() => setIsHighlightPlaying(true)}
+                onPause={() => setIsHighlightPlaying(false)}
                 onLoadedMetadata={() => {
                   if (videoRef.current && previewScene) {
                     setVideoError(null);
@@ -253,164 +257,6 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                 </button>
               )}
             </div>
-
-            {/* Central Play/Pause Click Overlay for Highlight Video */}
-            {!isImg && (
-              <button
-                onClick={handleToggleHighlightPlay}
-                aria-label={isHighlightPlaying ? "Pause highlight video" : "Play highlight video"}
-                className="absolute inset-0 w-full h-full flex items-center justify-center bg-black/5 hover:bg-black/15 transition cursor-pointer"
-              >
-                <div className="w-14 h-14 rounded-full bg-slate-900/80 backdrop-blur border border-slate-700/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-200 hover:scale-110 shadow-xl">
-                  {isHighlightPlaying ? (
-                    <Pause className="w-6 h-6 text-slate-200" />
-                  ) : (
-                    <Play className="w-6 h-6 text-purple-400 ml-1" />
-                  )}
-                </div>
-              </button>
-            )}
-
-            {/* Bottom HUD: Detailed Static Analysis Metrics Overlay */}
-            <div className="absolute bottom-4 inset-x-4 bg-slate-950/90 backdrop-blur-md border border-purple-500/30 p-3 rounded-xl shadow-2xl z-10 pointer-events-auto">
-              <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800/80">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
-                  <Eye className="w-4 h-4 text-purple-400" />
-                  <span>PySceneDetect & OpenCV Static Analysis HUD</span>
-                </div>
-                <div className="text-[11px] font-mono text-slate-400">
-                  {isImg ? (
-                    <span className="text-emerald-400">Elastic Duration (Cuts to any beat)</span>
-                  ) : previewScene.scene_id < 0 ? (
-                    <span className="text-indigo-300">
-                      Full Raw Video (Duration: {previewScene.duration.toFixed(2)}s)
-                    </span>
-                  ) : (
-                    <span>
-                      Slice: {previewScene.start_time.toFixed(2)}s – {previewScene.end_time.toFixed(2)}s (Duration: {previewScene.duration.toFixed(2)}s)
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Metric Cards Grid */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                {/* Sharpness (Laplacian Variance) */}
-                <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800 flex flex-col gap-0.5">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="flex items-center gap-1">
-                      <Zap className="w-3 h-3 text-emerald-400" />
-                      Sharpness (Laplacian)
-                    </span>
-                    <span
-                      className={`text-[10px] font-semibold px-1 rounded ${
-                        (previewScene.sharpness_score ?? 0) > 150
-                          ? "text-emerald-400 bg-emerald-950"
-                          : (previewScene.sharpness_score ?? 0) > 60
-                          ? "text-indigo-400 bg-indigo-950"
-                          : "text-slate-400 bg-slate-800"
-                      }`}
-                    >
-                      {(previewScene.sharpness_score ?? 0) > 150
-                        ? "Crisp / Detailed"
-                        : (previewScene.sharpness_score ?? 0) > 60
-                        ? "Balanced"
-                        : "Soft"}
-                    </span>
-                  </div>
-                  <div className="text-base font-bold font-mono text-slate-100">
-                    {previewScene.sharpness_score !== null && previewScene.sharpness_score !== undefined
-                      ? previewScene.sharpness_score.toFixed(1)
-                      : "N/A"}
-                  </div>
-                </div>
-
-                {/* Brightness (Luminance Mean) */}
-                <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800 flex flex-col gap-0.5">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="flex items-center gap-1">
-                      <Sun className="w-3 h-3 text-amber-400" />
-                      Mean Luminance
-                    </span>
-                    <span
-                      className={`text-[10px] font-semibold px-1 rounded ${
-                        (previewScene.brightness_score ?? 0) > 140
-                          ? "text-amber-400 bg-amber-950"
-                          : (previewScene.brightness_score ?? 0) > 70
-                          ? "text-amber-300 bg-amber-950/60"
-                          : "text-slate-400 bg-slate-800"
-                      }`}
-                    >
-                      {(previewScene.brightness_score ?? 0) > 140
-                        ? "Bright / Well-Lit"
-                        : (previewScene.brightness_score ?? 0) > 70
-                        ? "Warm Exposure"
-                        : "Low Light"}
-                    </span>
-                  </div>
-                  <div className="text-base font-bold font-mono text-slate-100">
-                    {previewScene.brightness_score !== null && previewScene.brightness_score !== undefined
-                      ? `${previewScene.brightness_score.toFixed(1)} / 255`
-                      : "N/A"}
-                  </div>
-                </div>
-
-                {/* Motion Score */}
-                <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800 flex flex-col gap-0.5">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="flex items-center gap-1">
-                      <Activity className="w-3 h-3 text-cyan-400" />
-                      Motion Energy
-                    </span>
-                    <span className="text-[10px] font-semibold px-1 rounded text-cyan-400 bg-cyan-950">
-                      {isImg
-                        ? "Static Photo"
-                        : (previewScene.motion_score ?? 0) > 40
-                        ? "High Action"
-                        : "Steady Shot"}
-                    </span>
-                  </div>
-                  <div className="text-base font-bold font-mono text-slate-100">
-                    {isImg
-                      ? "0.0 (Static)"
-                      : previewScene.motion_score !== null && previewScene.motion_score !== undefined
-                      ? previewScene.motion_score.toFixed(1)
-                      : "PySceneDetect Cut"}
-                  </div>
-                </div>
-
-                {/* Subject & Facial Emotion */}
-                <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800 flex flex-col gap-0.5">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="flex items-center gap-1">
-                      <Smile className="w-3 h-3 text-rose-400" />
-                      Subject & Emotion
-                    </span>
-                    <span className="text-[10px] font-semibold px-1 rounded text-rose-300 bg-rose-950/70">
-                      {previewScene.has_faces
-                        ? `${previewScene.face_count ?? 1} Face${(previewScene.face_count ?? 1) > 1 ? "s" : ""} • ${
-                            previewScene.subject_prominence ? previewScene.subject_prominence.replace("_", " ") : "subject"
-                          }`
-                        : previewScene.subject_prominence
-                        ? previewScene.subject_prominence.replace("_", " ")
-                        : "Scenic"}
-                    </span>
-                  </div>
-                  <div className="text-sm font-bold font-mono text-slate-100 truncate">
-                    {previewScene.has_faces ? (
-                      <span>
-                        {previewScene.dominant_expression ?? "Neutral"}
-                        {previewScene.smile_score !== null && previewScene.smile_score !== undefined
-                          ? ` (${Math.round(previewScene.smile_score * 100)}%)`
-                          : ""}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400 font-normal">No Faces Detected</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         ) : activeCut?.keyframe_path ? (
           /* Mode B: Timeline Active Cut Playback */
@@ -479,8 +325,130 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
         )}
       </div>
 
+      {/* Outside-Player Static Analysis Inspector Strip (Never blocks the video frame) */}
+      {previewScene && (
+        <div className="bg-slate-950/95 border-t border-purple-500/30 px-4 py-2 shrink-0">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-200">
+              <Eye className="w-3.5 h-3.5 text-purple-400" />
+              <span>PySceneDetect & OpenCV Static Analysis HUD</span>
+            </div>
+            <div className="text-[11px] font-mono text-slate-400">
+              {isImg ? (
+                <span className="text-emerald-400">Elastic Duration (Cuts to any beat)</span>
+              ) : previewScene.scene_id < 0 ? (
+                <span className="text-indigo-300">
+                  Full Raw Video (Duration: {previewScene.duration.toFixed(2)}s)
+                </span>
+              ) : (
+                <span>
+                  Slice: {previewScene.start_time.toFixed(2)}s – {previewScene.end_time.toFixed(2)}s (Duration: {previewScene.duration.toFixed(2)}s)
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            <div className="bg-slate-900/80 px-2.5 py-1.5 rounded-lg border border-slate-800 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                <Zap className="w-3 h-3 text-emerald-400" />
+                Sharpness
+              </span>
+              <span className="text-xs font-bold font-mono text-slate-100">
+                {previewScene.sharpness_score !== null && previewScene.sharpness_score !== undefined
+                  ? previewScene.sharpness_score.toFixed(1)
+                  : "N/A"}
+              </span>
+            </div>
+
+            <div className="bg-slate-900/80 px-2.5 py-1.5 rounded-lg border border-slate-800 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                <Sun className="w-3 h-3 text-amber-400" />
+                Luminance
+              </span>
+              <span className="text-xs font-bold font-mono text-slate-100">
+                {previewScene.brightness_score !== null && previewScene.brightness_score !== undefined
+                  ? `${previewScene.brightness_score.toFixed(1)} / 255`
+                  : "N/A"}
+              </span>
+            </div>
+
+            <div className="bg-slate-900/80 px-2.5 py-1.5 rounded-lg border border-slate-800 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                <Activity className="w-3 h-3 text-cyan-400" />
+                Motion
+              </span>
+              <span className="text-xs font-bold font-mono text-slate-100">
+                {isImg
+                  ? "0.0 (Static)"
+                  : previewScene.motion_score !== null && previewScene.motion_score !== undefined
+                  ? previewScene.motion_score.toFixed(1)
+                  : "PySceneDetect Cut"}
+              </span>
+            </div>
+
+            <div className="bg-slate-900/80 px-2.5 py-1.5 rounded-lg border border-slate-800 flex items-center justify-between gap-2 min-w-0">
+              <span className="flex items-center gap-1 text-[11px] text-slate-400 shrink-0">
+                <Smile className="w-3 h-3 text-rose-400" />
+                Subject & Emotion
+              </span>
+              <div className="text-right min-w-0">
+                <div className="text-xs font-bold font-mono text-slate-100 truncate">
+                  {previewScene.has_faces
+                    ? `${previewScene.dominant_expression ?? "Neutral"}${
+                        previewScene.smile_score !== null && previewScene.smile_score !== undefined
+                          ? ` (${Math.round(previewScene.smile_score * 100)}%)`
+                          : ""
+                      }`
+                    : "No Faces Detected"}
+                </div>
+                <div className="text-[10px] font-mono text-rose-300 truncate">
+                  {previewScene.has_faces
+                    ? `${previewScene.face_count ?? 1} Face${(previewScene.face_count ?? 1) > 1 ? "s" : ""} • ${
+                        previewScene.subject_prominence ? previewScene.subject_prominence.replace("_", " ") : "subject"
+                      }`
+                    : previewScene.subject_prominence
+                    ? previewScene.subject_prominence.replace("_", " ")
+                    : "Scenic"}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Playback Seekbar Scrubber */}
+      {(!previewScene || !isImg) && (
+        <div className="bg-slate-900/95 border-t border-slate-800 px-4 pt-2 pb-0.5 flex items-center gap-2 shrink-0">
+          <input
+            type="range"
+            min={0}
+            max={
+              previewScene
+                ? Math.max(0.1, previewScene.duration || videoRef.current?.duration || 10)
+                : Math.max(0.1, duration)
+            }
+            step={0.05}
+            value={previewScene ? highlightCurrentTime : currentTime}
+            onChange={(e) => {
+              const val = parseFloat(e.target.value);
+              if (previewScene && videoRef.current) {
+                videoRef.current.currentTime = previewScene.start_time + val;
+                setHighlightCurrentTime(val);
+              } else {
+                onSeek(val);
+              }
+            }}
+            aria-label="Seek video position"
+            className={`w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer ${
+              previewScene ? "accent-purple-500" : "accent-indigo-500"
+            }`}
+          />
+        </div>
+      )}
+
       {/* Playback Controls Toolbar */}
-      <div className="h-14 bg-slate-900/90 border-t border-slate-800 px-4 flex items-center justify-between shrink-0">
+      <div className="h-12 bg-slate-900/90 px-4 flex items-center justify-between shrink-0">
         {/* Left: Timecode and Transport */}
         <div className="flex items-center gap-3">
           <button
