@@ -659,6 +659,7 @@ export default function App() {
                 volume={volume}
                 isMuted={isMuted}
                 previewScene={previewScene}
+                activeVideoTrack={activeVideoTrack}
                 onClearPreviewScene={() => setPreviewScene(null)}
                 onAddToTimeline={handleAddSceneToTimeline}
                 onCreateHighlightSegment={handleCreateHighlightSegment}

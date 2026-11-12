@@ -28,6 +28,7 @@ export interface VideoPreviewProps {
   volume?: number;
   isMuted?: boolean;
   previewScene?: SceneCut | null;
+  activeVideoTrack?: number;
   onClearPreviewScene?: () => void;
   onAddToTimeline?: (scene: SceneCut) => void;
   onCreateHighlightSegment?: (sourceFile: string, startTime: number, endTime: number) => void;
@@ -56,6 +57,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
   volume = 0.8,
   isMuted = false,
   previewScene = null,
+  activeVideoTrack = 0,
   onClearPreviewScene,
   onAddToTimeline,
   onCreateHighlightSegment,
@@ -66,6 +68,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
   onChangeVolume,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const timelineVideoRef = useRef<HTMLVideoElement>(null);
   const [isHighlightPlaying, setIsHighlightPlaying] = useState<boolean>(true);
   const [highlightCurrentTime, setHighlightCurrentTime] = useState<number>(0);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -77,11 +80,23 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
     customDuration ||
     (cuts.length > 0 ? cuts[cuts.length - 1].timeline_end : 16.0);
 
-  // Find active cut in timeline mode
-  const activeCutIndex = cuts.findIndex(
-    (c) => currentTime >= c.timeline_start && currentTime < c.timeline_end
+  // Find active cut in timeline mode (prefer activeVideoTrack)
+  const trackMatchIdx = cuts.findIndex(
+    (c) =>
+      (c.track_index ?? 0) === activeVideoTrack &&
+      currentTime >= c.timeline_start &&
+      currentTime < c.timeline_end
   );
+  const activeCutIndex =
+    trackMatchIdx >= 0
+      ? trackMatchIdx
+      : cuts.findIndex((c) => currentTime >= c.timeline_start && currentTime < c.timeline_end);
   const activeCut: TimelineCut | undefined = cuts[activeCutIndex];
+  const activeCutIsVideo = Boolean(
+    activeCut &&
+      activeCut.source_out > activeCut.source_in &&
+      !/\.(jpg|jpeg|png|webp|bmp)$/i.test(activeCut.source_file)
+  );
 
   // Sync video element time and volume if previewing a scene section
   useEffect(() => {
@@ -117,6 +132,34 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
       videoRef.current.playbackRate = playbackRate;
     }
   }, [volume, isMuted, playbackRate]);
+
+  // Sync Timeline Mode <video> playback with timeline currentTime, isPlaying, and playbackRate
+  useEffect(() => {
+    if (previewScene || !activeCut || !activeCutIsVideo || !timelineVideoRef.current) return;
+    const vid = timelineVideoRef.current;
+    const targetSrcTime =
+      activeCut.source_in + Math.max(0, currentTime - activeCut.timeline_start);
+
+    vid.playbackRate = playbackRate;
+    vid.muted = true; // Soundtrack plays via audioEngine in timeline mode
+
+    if (Math.abs(vid.currentTime - targetSrcTime) > 0.35) {
+      try {
+        vid.currentTime = targetSrcTime;
+      } catch {
+        // ignore if metadata not yet loaded
+      }
+    }
+
+    if (isPlaying) {
+      if (vid.paused) {
+        const p = vid.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      }
+    } else if (!vid.paused) {
+      vid.pause();
+    }
+  }, [previewScene, activeCut, activeCutIsVideo, currentTime, isPlaying, playbackRate]);
 
   // Toggle play/pause of the highlight video element
   const handleToggleHighlightPlay = () => {
@@ -268,13 +311,41 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
               )}
             </div>
           </div>
-        ) : activeCut?.keyframe_path ? (
-          /* Mode B: Timeline Active Cut Playback */
-          <img
-            src={activeCut.keyframe_path}
-            alt="Current Frame"
-            className="w-full h-full object-contain select-none"
-          />
+        ) : activeCut ? (
+          /* Mode B: Timeline Active Cut Playback (real video stream or still image) */
+          activeCutIsVideo ? (
+            <video
+              ref={timelineVideoRef}
+              key={`tl-${activeCut.source_file}-${activeCut.source_in}-${activeCutIndex}`}
+              src={`/api/media-stream?path=${encodeURIComponent(activeCut.source_file)}`}
+              poster={activeCut.keyframe_path}
+              muted
+              playsInline
+              preload="auto"
+              className="w-full h-full object-contain select-none"
+              onLoadedMetadata={() => {
+                if (timelineVideoRef.current && activeCut) {
+                  const targetSrcTime =
+                    activeCut.source_in + Math.max(0, currentTime - activeCut.timeline_start);
+                  timelineVideoRef.current.currentTime = targetSrcTime;
+                  timelineVideoRef.current.playbackRate = playbackRate;
+                  if (isPlaying) {
+                    const p = timelineVideoRef.current.play();
+                    if (p && typeof p.catch === "function") p.catch(() => {});
+                  }
+                }
+              }}
+            />
+          ) : (
+            <img
+              src={
+                activeCut.keyframe_path ||
+                `/api/media-stream?path=${encodeURIComponent(activeCut.source_file)}`
+              }
+              alt="Current Frame"
+              className="w-full h-full object-contain select-none"
+            />
+          )
         ) : (
           /* Mode C: Idle Stage */
           <div className="flex flex-col items-center justify-center text-slate-600 gap-3">
