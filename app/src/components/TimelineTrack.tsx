@@ -40,7 +40,14 @@ const TRANSITION_STYLES: Record<
 };
 
 type DragMode =
-  | { type: "move"; cutIndex: number; startX: number; origStart: number; snapshot: TimelineCut[] }
+  | {
+      type: "move";
+      cutIndex: number;
+      startX: number;
+      origStart: number;
+      origTrack: number;
+      snapshot: TimelineCut[];
+    }
   | { type: "trim-left"; cutIndex: number; startX: number; snapshot: TimelineCut[]; isImg: boolean }
   | { type: "trim-right"; cutIndex: number; startX: number; snapshot: TimelineCut[]; isImg: boolean };
 
@@ -63,6 +70,7 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
   className = "",
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const laneRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [localZoomLevel, setLocalZoomLevel] = useState<number>(1.0);
   const [snapEnabled, setSnapEnabled] = useState<boolean>(true);
   const [dragMode, setDragMode] = useState<DragMode | null>(null);
@@ -98,12 +106,24 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
       const deltaSec = (deltaPx / trackWidth) * duration;
 
       if (dragMode.type === "move") {
+        let targetTrack = dragMode.origTrack;
+        for (let i = 0; i < totalTracks; i++) {
+          const laneEl = laneRefs.current[i];
+          if (laneEl) {
+            const laneRect = laneEl.getBoundingClientRect();
+            if (e.clientY >= laneRect.top && e.clientY <= laneRect.bottom) {
+              targetTrack = i;
+              break;
+            }
+          }
+        }
         const updated = moveCut(
           dragMode.snapshot,
           dragMode.cutIndex,
           dragMode.origStart + deltaSec,
           beats,
-          snapEnabled
+          snapEnabled,
+          targetTrack
         );
         onUpdateCuts(updated);
       } else if (dragMode.type === "trim-left") {
@@ -133,7 +153,7 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [dragMode, duration, zoomLevel, isControlledZoom, beats, snapEnabled, onUpdateCuts]);
+  }, [dragMode, duration, zoomLevel, isControlledZoom, beats, snapEnabled, totalTracks, onUpdateCuts]);
 
   const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (dragMode) return;
@@ -277,6 +297,9 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
             return (
               <div
                 key={trackIdx}
+                ref={(el) => {
+                  laneRefs.current[trackIdx] = el;
+                }}
                 onDragOver={(e) => {
                   e.preventDefault();
                   setDragOverTrack(trackIdx);
@@ -342,6 +365,7 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
                           cutIndex: index,
                           startX: e.clientX,
                           origStart: cut.timeline_start,
+                          origTrack: cut.track_index ?? 0,
                           snapshot: cuts,
                         });
                       }}

@@ -62,14 +62,15 @@ export function buildCutFromScene(
 }
 
 /**
- * Moves a cut horizontally along the timeline (preserving clip duration).
+ * Moves a cut horizontally along the timeline and/or vertically across video tracks (preserving clip duration).
  */
 export function moveCut(
   cuts: TimelineCut[],
   cutIndex: number,
   newTimelineStart: number,
   beats?: BeatsData | null,
-  snapEnabled = false
+  snapEnabled = false,
+  newTrackIndex?: number
 ): TimelineCut[] {
   const target = cuts[cutIndex];
   if (!target) return cuts;
@@ -84,6 +85,7 @@ export function moveCut(
           ...cut,
           timeline_start: roundMs(clampedStart),
           timeline_end: roundMs(clampedStart + dur),
+          ...(newTrackIndex !== undefined ? { track_index: Math.max(0, newTrackIndex) } : {}),
         }
       : cut
   );

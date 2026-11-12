@@ -38,10 +38,11 @@ describe("NLE timelineEditor utilities", () => {
     expect(snapToBeat(1.75, MOCK_BEATS, 0.1)).toBe(1.75);
   });
 
-  it("moves a cut horizontally while preserving duration", () => {
-    const moved = moveCut(BASE_CUTS, 0, 2.48, MOCK_BEATS, true);
+  it("moves a cut horizontally and vertically across tracks while preserving duration", () => {
+    const moved = moveCut(BASE_CUTS, 0, 2.48, MOCK_BEATS, true, 1);
     expect(moved[0].timeline_start).toBe(2.5);
     expect(moved[0].timeline_end).toBe(6.5);
+    expect(moved[0].track_index).toBe(1);
   });
 
   it("trims left edge and adjusts source_in without going negative", () => {
