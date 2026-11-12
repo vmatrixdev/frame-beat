@@ -248,23 +248,11 @@ export default function App() {
     }));
   };
 
-  // Remove a cut from the timeline and re-pack subsequent cuts
+  // Remove a cut from the timeline while preserving all other clips' positions
   const handleRemoveTimelineCut = (index: number) => {
     setTimeline((prev) => {
       if (!prev) return prev;
-      const remaining = prev.cuts.filter((_, i) => i !== index);
-      let cursor = 0.0;
-      const repacked = remaining.map((c) => {
-        const dur = Math.max(0.1, c.timeline_end - c.timeline_start);
-        const updated = {
-          ...c,
-          timeline_start: Number(cursor.toFixed(3)),
-          timeline_end: Number((cursor + dur).toFixed(3)),
-        };
-        cursor += dur;
-        return updated;
-      });
-      return { ...prev, cuts: repacked };
+      return { ...prev, cuts: prev.cuts.filter((_, i) => i !== index) };
     });
     setSelectedCutIndex(null);
   };
@@ -733,8 +721,14 @@ export default function App() {
             onWheel={(e) => {
               if (e.shiftKey) {
                 e.preventDefault();
-                const step = e.deltaY < 0 ? 0.25 : -0.25;
-                setTimelineZoom((z) => Math.max(1.0, Math.min(8.0, Number((z + step).toFixed(2)))));
+                // On macOS, Shift+Wheel translates vertical scroll into deltaX
+                const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+                if (delta !== 0) {
+                  const step = delta < 0 ? 0.25 : -0.25;
+                  setTimelineZoom((z) =>
+                    Math.max(1.0, Math.min(8.0, Number((z + step).toFixed(2))))
+                  );
+                }
               }
             }}
             className="border-t border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-2.5 shrink-0 overflow-y-auto"
@@ -779,17 +773,6 @@ export default function App() {
               </div>
 
               <div className="flex items-center gap-4">
-                {/* Legend & Hotkey Hint */}
-                <div className="hidden lg:flex items-center gap-3 text-[10px] text-slate-500 font-mono">
-                  <span>Shift+Wheel: Zoom</span>
-                  <span>•</span>
-                  <span>Space: Play</span>
-                  <span>•</span>
-                  <span>S: Split</span>
-                  <span>•</span>
-                  <span>Del: Remove</span>
-                </div>
-
                 {/* Unified Overall Timeline Zoom (Audio + Video Together) */}
                 <div className="flex items-center gap-1.5 bg-slate-950 px-2 py-0.5 rounded-lg border border-slate-800">
                   <button
