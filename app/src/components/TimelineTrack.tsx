@@ -1,13 +1,15 @@
 import React, { useRef, useState } from "react";
 import type { Timeline, TimelineCut, TransitionType } from "../types/schemas";
-import { ZoomIn, ZoomOut, Film } from "lucide-react";
+import { ZoomIn, ZoomOut, Film, X } from "lucide-react";
 
 export interface TimelineTrackProps {
   timeline: Timeline | null;
   currentTime: number;
   duration?: number;
   selectedCutIndex?: number | null;
+  zoomLevel?: number;
   onSelectCut?: (index: number) => void;
+  onRemoveCut?: (index: number) => void;
   onSeek: (time: number) => void;
   className?: string;
 }
@@ -28,12 +30,16 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
   currentTime,
   duration: customDuration,
   selectedCutIndex,
+  zoomLevel: externalZoomLevel,
   onSelectCut,
+  onRemoveCut,
   onSeek,
   className = "",
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [zoomLevel, setZoomLevel] = useState<number>(1.0); // 1.0 = 100% width
+  const [localZoomLevel, setLocalZoomLevel] = useState<number>(1.0); // 1.0 = 100% width
+  const isControlledZoom = externalZoomLevel !== undefined;
+  const zoomLevel = isControlledZoom ? externalZoomLevel : localZoomLevel;
 
   const cuts = timeline?.cuts || [];
   const duration =
@@ -47,8 +53,8 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
   const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!containerRef.current || duration <= 0) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const clickX = e.clientX - rect.left + containerRef.current.scrollLeft;
-    const totalWidth = rect.width * zoomLevel;
+    const clickX = e.clientX - rect.left + (isControlledZoom ? 0 : containerRef.current.scrollLeft);
+    const totalWidth = isControlledZoom ? rect.width : rect.width * zoomLevel;
     const seekTime = Math.max(0, Math.min(duration, (clickX / totalWidth) * duration));
     onSeek(seekTime);
   };
@@ -72,38 +78,42 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
           )}
         </div>
 
-        {/* Zoom Controls */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setZoomLevel((z) => Math.max(1.0, Number((z - 0.25).toFixed(2))))}
-            disabled={zoomLevel <= 1.0}
-            className="p-1 rounded hover:bg-slate-800 disabled:opacity-30 text-slate-400 hover:text-slate-200 transition"
-            title="Zoom Out"
-          >
-            <ZoomOut className="w-3.5 h-3.5" />
-          </button>
-          <span className="text-[11px] font-mono w-10 text-center">
-            {Math.round(zoomLevel * 100)}%
-          </span>
-          <button
-            onClick={() => setZoomLevel((z) => Math.min(3.0, Number((z + 0.25).toFixed(2))))}
-            disabled={zoomLevel >= 3.0}
-            className="p-1 rounded hover:bg-slate-800 disabled:opacity-30 text-slate-400 hover:text-slate-200 transition"
-            title="Zoom In"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-          </button>
-        </div>
+        {/* Zoom Controls (hidden when controlled by unified timeline zoom) */}
+        {!isControlledZoom && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setLocalZoomLevel((z) => Math.max(1.0, Number((z - 0.25).toFixed(2))))}
+              disabled={zoomLevel <= 1.0}
+              className="p-1 rounded hover:bg-slate-800 disabled:opacity-30 text-slate-400 hover:text-slate-200 transition"
+              title="Zoom Out"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-[11px] font-mono w-10 text-center">
+              {Math.round(zoomLevel * 100)}%
+            </span>
+            <button
+              onClick={() => setLocalZoomLevel((z) => Math.min(3.0, Number((z + 0.25).toFixed(2))))}
+              disabled={zoomLevel >= 3.0}
+              className="p-1 rounded hover:bg-slate-800 disabled:opacity-30 text-slate-400 hover:text-slate-200 transition"
+              title="Zoom In"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Scrollable Timeline Area */}
+      {/* Scrollable Timeline Area (or full-width inside shared parent scroller) */}
       <div
         ref={containerRef}
         onClick={handleTrackClick}
-        className="relative overflow-x-auto rounded-xl border border-slate-800 bg-slate-950 p-1.5 min-h-[96px] cursor-pointer select-none"
+        className={`relative rounded-xl border border-slate-800 bg-slate-950 p-1.5 min-h-[96px] cursor-pointer select-none ${
+          isControlledZoom ? "" : "overflow-x-auto"
+        }`}
       >
         <div
-          style={{ width: `${zoomLevel * 100}%` }}
+          style={{ width: isControlledZoom ? "100%" : `${zoomLevel * 100}%` }}
           className="relative h-20 transition-all duration-75"
         >
           {/* Clips List */}
@@ -167,10 +177,25 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
                           {transStyle.label}
                         </span>
 
-                        {/* Duration Badge */}
-                        <span className="text-[10px] font-mono text-slate-300 bg-slate-950/70 px-1 rounded border border-slate-800">
-                          {cutDur.toFixed(2)}s
-                        </span>
+                        {/* Duration Badge & Remove */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] font-mono text-slate-300 bg-slate-950/70 px-1 rounded border border-slate-800">
+                            {cutDur.toFixed(2)}s
+                          </span>
+                          {onRemoveCut && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onRemoveCut(index);
+                              }}
+                              title="Remove clip from timeline"
+                              className="opacity-0 group-hover:opacity-100 p-0.5 rounded bg-slate-950/80 hover:bg-rose-600 text-slate-300 hover:text-white transition"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {/* Source Name & In/Out */}

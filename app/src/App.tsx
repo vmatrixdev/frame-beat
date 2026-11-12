@@ -8,6 +8,8 @@ import {
   Cpu,
   Film,
   FolderOpen,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import type { BeatsData, ScenesCatalog, Timeline, SceneCut } from "./types/schemas";
 import { engineClient, isTauriEnvironment } from "./services/engineClient";
@@ -54,6 +56,7 @@ export default function App() {
   const [volume, setVolume] = useState<number>(0.8);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [selectedCutIndex, setSelectedCutIndex] = useState<number | null>(null);
+  const [timelineZoom, setTimelineZoom] = useState<number>(1.0);
 
   // Export Modal state
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
@@ -159,6 +162,134 @@ export default function App() {
     audioEngine.stop();
     setIsPlaying(false);
     setPreviewScene(scene);
+  };
+
+  // Manual Timeline Setup: Append a highlight, photo, or raw video onto the timeline
+  const handleAddSceneToTimeline = (scene: SceneCut) => {
+    const isImg = scene.is_still_image || scene.media_type === "image";
+    const clipDuration = isImg ? 3.0 : scene.duration > 0 ? scene.duration : 4.0;
+    const sourceIn = scene.scene_id < 0 ? 0.0 : scene.start_time;
+    const sourceOut = Number((sourceIn + clipDuration).toFixed(3));
+
+    setTimeline((prev) => {
+      const existingCuts = prev?.cuts || [];
+      const timelineStart =
+        existingCuts.length > 0 ? existingCuts[existingCuts.length - 1].timeline_end : 0.0;
+      const timelineEnd = Number((timelineStart + clipDuration).toFixed(3));
+      const newCut = {
+        source_file: scene.source_file,
+        source_in: sourceIn,
+        source_out: sourceOut,
+        timeline_start: timelineStart,
+        timeline_end: timelineEnd,
+        transition: (existingCuts.length > 0 ? "crossfade" : "cut") as "cut" | "crossfade",
+        keyframe_path: scene.keyframe_path,
+      };
+      return {
+        project_title: prev?.project_title || projectTitle,
+        target_audio: prev?.target_audio || audioFile || "soundtrack",
+        cuts: [...existingCuts, newCut],
+      };
+    });
+    setPreviewScene(null);
+  };
+
+  // Remove a cut from the timeline and re-pack subsequent cuts
+  const handleRemoveTimelineCut = (index: number) => {
+    setTimeline((prev) => {
+      if (!prev) return prev;
+      const remaining = prev.cuts.filter((_, i) => i !== index);
+      let cursor = 0.0;
+      const repacked = remaining.map((c) => {
+        const dur = Math.max(0.1, c.timeline_end - c.timeline_start);
+        const updated = {
+          ...c,
+          timeline_start: Number(cursor.toFixed(3)),
+          timeline_end: Number((cursor + dur).toFixed(3)),
+        };
+        cursor += dur;
+        return updated;
+      });
+      return { ...prev, cuts: repacked };
+    });
+    setSelectedCutIndex(null);
+  };
+
+  // Manual Highlight Segment Creation (In/Out markers from VideoPreview)
+  const handleCreateHighlightSegment = async (
+    sourceFile: string,
+    startTime: number,
+    endTime: number
+  ) => {
+    setIsAnalyzingScenes(true);
+    try {
+      const nextId = scenes ? scenes.scenes.length : 0;
+      const newCut = await engineClient.analyzeSegment(sourceFile, startTime, endTime, 5, nextId);
+      setScenes((prev) => {
+        if (!prev) {
+          return {
+            source_files: [sourceFile],
+            total_scenes: 1,
+            scenes: [newCut],
+          };
+        }
+        const updatedScenes = [...prev.scenes, newCut];
+        const sourceFiles = prev.source_files.includes(sourceFile)
+          ? prev.source_files
+          : [...prev.source_files, sourceFile];
+        return {
+          source_files: sourceFiles,
+          total_scenes: updatedScenes.length,
+          scenes: updatedScenes,
+        };
+      });
+      setPreviewScene(newCut);
+    } catch (err) {
+      console.error("Failed to create manual highlight segment:", err);
+    } finally {
+      setIsAnalyzingScenes(false);
+    }
+  };
+
+  // On-Demand Static Re-Analysis via Context Menu
+  const handleReanalyzeScene = async (scene: SceneCut, sampleFrames: number) => {
+    setIsAnalyzingScenes(true);
+    try {
+      const start = scene.scene_id < 0 ? 0.0 : scene.start_time;
+      const end = scene.scene_id < 0 ? 0.0 : scene.end_time;
+      const updatedCut = await engineClient.analyzeSegment(
+        scene.source_file,
+        start,
+        end,
+        sampleFrames,
+        scene.scene_id < 0 ? 0 : scene.scene_id
+      );
+      if (scene.scene_id < 0) {
+        setPreviewScene({ ...updatedCut, scene_id: -1 });
+      } else {
+        setScenes((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            scenes: prev.scenes.map((s) =>
+              s.scene_id === scene.scene_id && s.source_file === scene.source_file
+                ? updatedCut
+                : s
+            ),
+          };
+        });
+        if (
+          previewScene?.scene_id === scene.scene_id &&
+          previewScene?.source_file === scene.source_file
+        ) {
+          setPreviewScene(updatedCut);
+        }
+      }
+    } catch (err) {
+      console.error("On-demand static analysis failed:", err);
+    } finally {
+      setIsAnalyzingScenes(false);
+    }
   };
 
   const handleTogglePlayPause = () => {
@@ -381,6 +512,8 @@ export default function App() {
                 activeScene={previewScene}
                 onSelectScene={handleSelectHighlightScene}
                 onSelectAudioTrack={() => setPreviewScene(null)}
+                onAddToTimeline={handleAddSceneToTimeline}
+                onReanalyzeScene={handleReanalyzeScene}
               />
 
               {/* Section 2: LLM Director Directive */}
@@ -476,6 +609,8 @@ export default function App() {
                 isMuted={isMuted}
                 previewScene={previewScene}
                 onClearPreviewScene={() => setPreviewScene(null)}
+                onAddToTimeline={handleAddSceneToTimeline}
+                onCreateHighlightSegment={handleCreateHighlightSegment}
                 onPlayPause={handleTogglePlayPause}
                 onSeek={handleSeek}
                 onChangePlaybackRate={handleChangePlaybackRate}
@@ -486,8 +621,8 @@ export default function App() {
           </div>
 
           {/* Bottom Docked Timeline Drawer */}
-          <div className="h-64 border-t border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-3 shrink-0">
-            {/* Header / Info bar */}
+          <div className="h-64 border-t border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-2.5 shrink-0">
+            {/* Header / Info bar + Unified Timeline Zoom */}
             <div className="flex items-center justify-between text-xs text-slate-400 px-1">
               <div className="flex items-center gap-4">
                 <span className="font-semibold text-slate-200">
@@ -505,40 +640,78 @@ export default function App() {
                 )}
               </div>
 
-              {/* Legend */}
-              <div className="flex items-center gap-3 text-[11px]">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400" /> Downbeats
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-indigo-400" /> Beats
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-rose-500" /> Drop Energy
-                </span>
+              <div className="flex items-center gap-4">
+                {/* Legend */}
+                <div className="hidden md:flex items-center gap-3 text-[11px]">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" /> Downbeats
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-indigo-400" /> Beats
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-rose-500" /> Drop Energy
+                  </span>
+                </div>
+
+                {/* Unified Overall Timeline Zoom (Audio + Video Together) */}
+                <div className="flex items-center gap-1.5 bg-slate-950 px-2 py-0.5 rounded-lg border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setTimelineZoom((z) => Math.max(1.0, Number((z - 0.5).toFixed(2))))}
+                    disabled={timelineZoom <= 1.0}
+                    className="p-0.5 rounded hover:bg-slate-800 disabled:opacity-30 text-slate-400 hover:text-slate-200 transition"
+                    title="Zoom Out Overall Timeline"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-[11px] font-mono w-11 text-center text-slate-300">
+                    {Math.round(timelineZoom * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setTimelineZoom((z) => Math.min(8.0, Number((z + 0.5).toFixed(2))))}
+                    disabled={timelineZoom >= 8.0}
+                    className="p-0.5 rounded hover:bg-slate-800 disabled:opacity-30 text-slate-400 hover:text-slate-200 transition"
+                    title="Zoom In Overall Timeline"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* Waveform Visualizer */}
-            <WaveformVisualizer
-              beatsData={beats}
-              currentTime={currentTime}
-              duration={duration}
-              onSeek={handleSeek}
-            />
+            {/* Unified Horizontally Scrollable Timeline Viewport (Waveform + Video Cuts Zoom Together) */}
+            <div className="flex-1 overflow-x-auto overflow-y-hidden pr-1">
+              <div
+                style={{ width: `${timelineZoom * 100}%`, minWidth: "100%" }}
+                className="flex flex-col gap-2"
+              >
+                {/* Waveform Visualizer */}
+                <WaveformVisualizer
+                  beatsData={beats}
+                  currentTime={currentTime}
+                  duration={duration}
+                  zoomLevel={timelineZoom}
+                  onSeek={handleSeek}
+                />
 
-            {/* Cuts Track */}
-            <TimelineTrack
-              timeline={timeline}
-              currentTime={currentTime}
-              duration={duration}
-              selectedCutIndex={selectedCutIndex}
-              onSelectCut={(idx) => {
-                setPreviewScene(null);
-                setSelectedCutIndex(idx);
-              }}
-              onSeek={handleSeek}
-            />
+                {/* Cuts Track */}
+                <TimelineTrack
+                  timeline={timeline}
+                  currentTime={currentTime}
+                  duration={duration}
+                  zoomLevel={timelineZoom}
+                  selectedCutIndex={selectedCutIndex}
+                  onSelectCut={(idx) => {
+                    setPreviewScene(null);
+                    setSelectedCutIndex(idx);
+                  }}
+                  onRemoveCut={handleRemoveTimelineCut}
+                  onSeek={handleSeek}
+                />
+              </div>
+            </div>
           </div>
         </section>
       </main>

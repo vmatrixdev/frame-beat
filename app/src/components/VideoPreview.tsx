@@ -15,6 +15,8 @@ import {
   Eye,
   X,
   Smile,
+  Scissors,
+  Plus,
 } from "lucide-react";
 
 export interface VideoPreviewProps {
@@ -27,6 +29,8 @@ export interface VideoPreviewProps {
   isMuted?: boolean;
   previewScene?: SceneCut | null;
   onClearPreviewScene?: () => void;
+  onAddToTimeline?: (scene: SceneCut) => void;
+  onCreateHighlightSegment?: (sourceFile: string, startTime: number, endTime: number) => void;
   onPlayPause: () => void;
   onSeek: (time: number) => void;
   onChangePlaybackRate: (rate: number) => void;
@@ -53,6 +57,8 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
   isMuted = false,
   previewScene = null,
   onClearPreviewScene,
+  onAddToTimeline,
+  onCreateHighlightSegment,
   onPlayPause,
   onSeek,
   onChangePlaybackRate,
@@ -63,6 +69,8 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
   const [isHighlightPlaying, setIsHighlightPlaying] = useState<boolean>(true);
   const [highlightCurrentTime, setHighlightCurrentTime] = useState<number>(0);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [markIn, setMarkIn] = useState<number | null>(null);
+  const [markOut, setMarkOut] = useState<number | null>(null);
 
   const cuts = timeline?.cuts || [];
   const duration =
@@ -78,6 +86,8 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
   // Sync video element time and volume if previewing a scene section
   useEffect(() => {
     setVideoError(null);
+    setMarkIn(null);
+    setMarkOut(null);
     if (previewScene && videoRef.current && !previewScene.is_still_image && previewScene.media_type !== "image") {
       videoRef.current.currentTime = previewScene.start_time;
       videoRef.current.volume = volume;
@@ -328,23 +338,73 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
       {/* Outside-Player Static Analysis Inspector Strip (Never blocks the video frame) */}
       {previewScene && (
         <div className="bg-slate-950/95 border-t border-purple-500/30 px-4 py-2 shrink-0">
-          <div className="flex items-center justify-between mb-1.5">
+          <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
             <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-200">
               <Eye className="w-3.5 h-3.5 text-purple-400" />
               <span>PySceneDetect & OpenCV Static Analysis HUD</span>
             </div>
-            <div className="text-[11px] font-mono text-slate-400">
-              {isImg ? (
-                <span className="text-emerald-400">Elastic Duration (Cuts to any beat)</span>
-              ) : previewScene.scene_id < 0 ? (
-                <span className="text-indigo-300">
-                  Full Raw Video (Duration: {previewScene.duration.toFixed(2)}s)
-                </span>
-              ) : (
-                <span>
-                  Slice: {previewScene.start_time.toFixed(2)}s – {previewScene.end_time.toFixed(2)}s (Duration: {previewScene.duration.toFixed(2)}s)
-                </span>
+
+            {/* Manual Segment Marking + Add to Timeline Actions */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {!isImg && onCreateHighlightSegment && (
+                <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-md px-1.5 py-0.5 text-[10px] font-mono">
+                  <Scissors className="w-3 h-3 text-purple-400" />
+                  <button
+                    type="button"
+                    onClick={() => setMarkIn(Number((videoRef.current?.currentTime ?? 0).toFixed(2)))}
+                    className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
+                    title="Mark segment start at current playhead"
+                  >
+                    In{markIn !== null ? `: ${markIn.toFixed(1)}s` : ""}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMarkOut(Number((videoRef.current?.currentTime ?? 0).toFixed(2)))}
+                    className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
+                    title="Mark segment end at current playhead"
+                  >
+                    Out{markOut !== null ? `: ${markOut.toFixed(1)}s` : ""}
+                  </button>
+                  {markIn !== null && markOut !== null && markOut > markIn && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onCreateHighlightSegment(previewScene.source_file, markIn, markOut);
+                        setMarkIn(null);
+                        setMarkOut(null);
+                      }}
+                      className="px-1.5 py-0.5 rounded bg-purple-600 hover:bg-purple-500 text-white font-semibold transition"
+                    >
+                      Save Highlight
+                    </button>
+                  )}
+                </div>
               )}
+
+              {onAddToTimeline && (
+                <button
+                  type="button"
+                  onClick={() => onAddToTimeline(previewScene)}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-[10px] font-semibold text-white transition"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add to Timeline
+                </button>
+              )}
+
+              <div className="text-[11px] font-mono text-slate-400 ml-1">
+                {isImg ? (
+                  <span className="text-emerald-400">Elastic Duration</span>
+                ) : previewScene.scene_id < 0 ? (
+                  <span className="text-indigo-300">
+                    Raw ({previewScene.duration.toFixed(2)}s)
+                  </span>
+                ) : (
+                  <span>
+                    {previewScene.start_time.toFixed(2)}s–{previewScene.end_time.toFixed(2)}s ({previewScene.duration.toFixed(2)}s)
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 

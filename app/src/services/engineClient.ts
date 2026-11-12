@@ -310,6 +310,34 @@ class EngineClient {
   }
 
   /**
+   * Run static visual + MediaPipe face/emotion analysis on a single asset or custom [start, end] segment.
+   */
+  async analyzeSegment(
+    sourceFile: string,
+    startTime = 0.0,
+    endTime = 0.0,
+    sampleFrames = 5,
+    sceneId = 0
+  ): Promise<SceneCut> {
+    const res = await fetch("/api/analyze-segment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceFile, startTime, endTime, sampleFrames, sceneId }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Segment analysis failed (${res.status}): ${errText}`);
+    }
+    const cut = (await res.json()) as SceneCut;
+    const normalized = this.normalizeCatalogThumbnails({
+      source_files: [cut.source_file],
+      total_scenes: 1,
+      scenes: [cut],
+    });
+    return normalized.scenes[0];
+  }
+
+  /**
    * Direct an AMV timeline based on musical beats, detected scenes, and director prompt.
    */
   async directAmv(

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { BeatsData, SceneCut, ScenesCatalog } from "../types/schemas";
 import {
   ChevronDown,
@@ -6,9 +6,13 @@ import {
   Film,
   FolderOpen,
   Image as ImageIcon,
+  MoreVertical,
   Music,
   Play,
+  Plus,
+  ScanFace,
   Smile,
+  Sparkles,
   Video,
 } from "lucide-react";
 
@@ -19,6 +23,8 @@ export interface MediaLibraryTreeProps {
   activeScene: SceneCut | null;
   onSelectScene: (scene: SceneCut) => void;
   onSelectAudioTrack?: () => void;
+  onAddToTimeline?: (scene: SceneCut) => void;
+  onReanalyzeScene?: (scene: SceneCut, sampleFrames: number) => void;
 }
 
 interface RawVideoGroup {
@@ -36,11 +42,31 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
   activeScene,
   onSelectScene,
   onSelectAudioTrack,
+  onAddToTimeline,
+  onReanalyzeScene,
 }) => {
   const [audioExpanded, setAudioExpanded] = useState(true);
   const [videosExpanded, setVideosExpanded] = useState(true);
   const [photosExpanded, setPhotosExpanded] = useState(true);
   const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    scene: SceneCut;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [contextMenu]);
+
+  const openContextMenu = (e: React.MouseEvent, scene: SceneCut) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, scene });
+  };
 
   const { videoGroups, photoScenes } = useMemo(() => {
     const scenes = catalog?.scenes || [];
@@ -186,11 +212,34 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
                     activeScene?.scene_id === -1 && activeScene.source_file === group.sourceFile;
                   const thumbUrl = group.cuts[0]?.keyframe_path;
 
+                  const buildRawScene = (): SceneCut => {
+                    const first = group.cuts[0];
+                    return {
+                      scene_id: -1,
+                      source_file: group.sourceFile,
+                      start_time: 0.0,
+                      end_time: 0.0,
+                      duration: group.totalDuration,
+                      keyframe_path: first?.keyframe_path,
+                      sharpness_score: first?.sharpness_score,
+                      motion_score: first?.motion_score,
+                      brightness_score: first?.brightness_score,
+                      media_type: "video",
+                      is_still_image: false,
+                      has_faces: group.hasFaces,
+                      face_count: first?.face_count,
+                      dominant_expression: first?.dominant_expression,
+                      smile_score: first?.smile_score,
+                      subject_prominence: first?.subject_prominence,
+                    };
+                  };
+
                   return (
                     <div key={group.sourceFile}>
                       <div
                         onClick={() => handleSelectRawVideo(group)}
-                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded-md cursor-pointer transition text-[11px] ${
+                        onContextMenu={(e) => openContextMenu(e, buildRawScene())}
+                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded-md cursor-pointer transition text-[11px] group ${
                           isRawActive
                             ? "bg-purple-950/70 text-purple-200 border border-purple-500/40"
                             : "text-slate-300 hover:bg-slate-900/90"
@@ -224,6 +273,14 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
                           </div>
                         </div>
                         {group.hasFaces && <Smile className="w-3 h-3 text-rose-400 shrink-0" />}
+                        <button
+                          type="button"
+                          onClick={(e) => openContextMenu(e, buildRawScene())}
+                          title="Actions & Analyzers"
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition shrink-0"
+                        >
+                          <MoreVertical className="w-3 h-3" />
+                        </button>
                       </div>
 
                       {isExpanded && (
@@ -237,6 +294,7 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
                                 key={`${cut.scene_id}-${cut.start_time}`}
                                 type="button"
                                 onClick={() => onSelectScene(cut)}
+                                onContextMenu={(e) => openContextMenu(e, cut)}
                                 className={`w-full flex items-center justify-between gap-1.5 px-1.5 py-0.5 rounded text-[10px] font-mono transition ${
                                   isCutActive
                                     ? "bg-indigo-600/30 text-indigo-200"
@@ -303,7 +361,8 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
                       key={`${photo.scene_id}-${photo.source_file}`}
                       type="button"
                       onClick={() => onSelectScene(photo)}
-                      className={`w-full flex items-center gap-2 px-1.5 py-1 rounded-md text-left text-[11px] transition ${
+                      onContextMenu={(e) => openContextMenu(e, photo)}
+                      className={`w-full flex items-center gap-2 px-1.5 py-1 rounded-md text-left text-[11px] transition group ${
                         isActive
                           ? "bg-emerald-950/60 text-emerald-200 border border-emerald-500/40"
                           : "text-slate-300 hover:bg-slate-900"
@@ -327,6 +386,57 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
           )}
         </div>
       </div>
+
+      {/* Contextual Menu for Manual Static Analysis & Timeline Setup */}
+      {contextMenu && (
+        <div
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          className="fixed z-50 w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl py-1 text-xs text-slate-200"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {onAddToTimeline && (
+            <button
+              type="button"
+              onClick={() => {
+                onAddToTimeline(contextMenu.scene);
+                setContextMenu(null);
+              }}
+              className="w-full px-3 py-1.5 text-left hover:bg-indigo-600/30 flex items-center gap-2 transition"
+            >
+              <Plus className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Add to Timeline</span>
+            </button>
+          )}
+          {onReanalyzeScene && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  onReanalyzeScene(contextMenu.scene, 5);
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left hover:bg-purple-600/30 flex items-center gap-2 transition"
+              >
+                <ScanFace className="w-3.5 h-3.5 text-purple-400" />
+                <span>Analyze Faces (5 frames)</span>
+              </button>
+              {!contextMenu.scene.is_still_image && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onReanalyzeScene(contextMenu.scene, 15);
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left hover:bg-rose-600/30 flex items-center gap-2 transition"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Deep Face Scan (15 frames)</span>
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };

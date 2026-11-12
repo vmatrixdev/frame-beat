@@ -108,6 +108,83 @@ function amvEngineVitePlugin(): Plugin {
         });
       });
 
+      // API to run static analysis on a single asset or custom [startTime, endTime] segment
+      server.middlewares.use("/api/analyze-segment", (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          return res.end();
+        }
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk: Buffer) => chunks.push(chunk));
+        req.on("end", async () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+            let sourceFile = body.sourceFile || "";
+            if (!sourceFile) {
+              res.statusCode = 400;
+              return res.end(JSON.stringify({ error: "sourceFile is required" }));
+            }
+            const projectRoot = path.resolve(__dirname, "..");
+            if (sourceFile.startsWith("~")) {
+              sourceFile = path.join(os.homedir(), sourceFile.slice(1));
+            } else if (!path.isAbsolute(sourceFile)) {
+              sourceFile = path.resolve(projectRoot, sourceFile);
+            }
+            if (!fs.existsSync(sourceFile)) {
+              res.statusCode = 404;
+              return res.end(JSON.stringify({ error: `File not found: ${sourceFile}` }));
+            }
+
+            const pythonBin = path.join(projectRoot, "engine", ".venv", "bin", "python");
+            const scriptPath = path.join(projectRoot, "engine", "main.py");
+            const thumbsDir = path.join(projectRoot, "cache", "thumbnails");
+            fs.mkdirSync(thumbsDir, { recursive: true });
+
+            const args = [
+              scriptPath,
+              "analyze-segment",
+              sourceFile,
+              "--start",
+              String(body.startTime ?? 0.0),
+              "--end",
+              String(body.endTime ?? 0.0),
+              "--samples",
+              String(body.sampleFrames ?? 5),
+              "--scene-id",
+              String(body.sceneId ?? 0),
+              "--thumbs",
+              thumbsDir,
+            ];
+
+            const proc = spawn(pythonBin, args, {
+              cwd: projectRoot,
+              env: { ...process.env, PYTHONPATH: projectRoot },
+            });
+
+            let stdout = "";
+            let stderr = "";
+            proc.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+            proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+
+            proc.on("close", (code: number) => {
+              const jsonStart = stdout.indexOf("{");
+              const cleanJson = jsonStart >= 0 ? stdout.slice(jsonStart) : "";
+              if (code === 0 && cleanJson.trim()) {
+                res.setHeader("Content-Type", "application/json");
+                res.end(cleanJson);
+              } else {
+                res.statusCode = 500;
+                res.end(JSON.stringify({ error: stderr || "Segment analysis failed" }));
+              }
+            });
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: msg }));
+          }
+        });
+      });
+
       server.middlewares.use("/api/analyze-soundtrack", (req, res) => {
         if (req.method !== "POST") {
           res.statusCode = 405;

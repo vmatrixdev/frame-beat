@@ -5,6 +5,7 @@ export interface WaveformVisualizerProps {
   beatsData: BeatsData | null;
   currentTime: number;
   duration?: number;
+  zoomLevel?: number;
   onSeek: (time: number) => void;
   className?: string;
 }
@@ -23,6 +24,7 @@ export const WaveformVisualizer: React.FC<WaveformVisualizerProps> = ({
   beatsData,
   currentTime,
   duration: customDuration,
+  zoomLevel = 1.0,
   onSeek,
   className = "",
 }) => {
@@ -34,7 +36,7 @@ export const WaveformVisualizer: React.FC<WaveformVisualizerProps> = ({
 
   // Generate deterministic synthetic waveform peaks based on beats and energy
   const waveformBars = useMemo(() => {
-    const barCount = 120;
+    const barCount = Math.min(480, Math.max(120, Math.round(120 * zoomLevel)));
     const bars: { height: number; isDownbeat: boolean; isBeat: boolean; energyLevel: EnergyLevel }[] = [];
 
     for (let i = 0; i < barCount; i++) {
@@ -65,7 +67,7 @@ export const WaveformVisualizer: React.FC<WaveformVisualizerProps> = ({
       bars.push({ height, isDownbeat, isBeat, energyLevel: level });
     }
     return bars;
-  }, [duration, beatsData]);
+  }, [duration, beatsData, zoomLevel]);
 
   const handlePointerSeek = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!containerRef.current || duration <= 0) return;

@@ -17,7 +17,7 @@ import typer
 from rich.console import Console
 
 from engine.audio_analyzer import analyze_audio
-from engine.visual_analyzer import analyze_directory
+from engine.visual_analyzer import analyze_directory, analyze_single_segment
 from engine.director import direct_amv, load_dotenv_if_present
 from engine.stitcher import render_ffmpeg, export_project, RenderProgress
 from engine.models import BeatsData, ScenesCatalog, Timeline
@@ -67,6 +67,31 @@ def analyze_scenes(
             typer.echo(result_json)
     except Exception as err:
         console.print(f"[bold red]Error analyzing scenes: {err}[/bold red]", file=sys.stderr)
+        raise typer.Exit(code=1)
+
+
+@app.command(name="analyze-segment")
+def analyze_segment(
+    source_path: Path = typer.Argument(..., help="Path to source video or image file"),
+    start_time: float = typer.Option(0.0, "--start", help="Segment start time in seconds"),
+    end_time: float = typer.Option(0.0, "--end", help="Segment end time in seconds (0 = full)"),
+    sample_frames: int = typer.Option(5, "--samples", help="Number of frames to sample for face/emotion"),
+    scene_id: int = typer.Option(0, "--scene-id", help="Scene ID to assign"),
+    thumbnail_dir: Path = typer.Option(Path("cache/thumbnails"), "--thumbs", help="Directory for thumbnail keyframes"),
+):
+    """Run static visual + MediaPipe face/emotion analysis on a single asset or custom segment."""
+    try:
+        cut = analyze_single_segment(
+            source_path=source_path,
+            start_time=start_time,
+            end_time=end_time,
+            sample_frames=sample_frames,
+            output_thumbnail_dir=thumbnail_dir,
+            scene_id=scene_id,
+        )
+        typer.echo(cut.model_dump_json(indent=2))
+    except Exception as err:
+        console.print(f"[bold red]Error analyzing segment: {err}[/bold red]", file=sys.stderr)
         raise typer.Exit(code=1)
 
 

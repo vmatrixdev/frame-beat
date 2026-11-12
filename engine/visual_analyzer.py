@@ -219,3 +219,92 @@ def analyze_directory(
         total_scenes=len(all_scenes),
         scenes=all_scenes,
     )
+
+
+def analyze_single_segment(
+    source_path: str | Path,
+    start_time: float = 0.0,
+    end_time: float = 0.0,
+    sample_frames: int = 5,
+    output_thumbnail_dir: str | Path = "cache/thumbnails",
+    scene_id: int = 0,
+) -> SceneCut:
+    """
+    Runs static visual + MediaPipe face/emotion analysis on a single image or
+    a specific [start_time, end_time] segment of a video with configurable sampling.
+    """
+    source_path = Path(source_path)
+    if not source_path.exists():
+        raise FileNotFoundError(f"Source file not found: {source_path}")
+
+    if source_path.suffix.lower() in IMAGE_EXTENSIONS:
+        cut = analyze_image(source_path, output_thumbnail_dir=output_thumbnail_dir)
+        cut.scene_id = scene_id
+        return cut
+
+    output_dir = Path(output_thumbnail_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    cap = cv2.VideoCapture(str(source_path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+    total_duration = total_frames / fps if fps > 0 else 0.0
+
+    start_sec = max(0.0, start_time)
+    end_sec = end_time if end_time > start_sec else total_duration
+    duration = max(0.0, end_sec - start_sec)
+
+    n_samples = max(1, min(30, int(sample_frames)))
+    if n_samples == 1 or duration <= 0.2:
+        sample_fracs = [0.5]
+    else:
+        sample_fracs = [0.05 + (0.9 * i / (n_samples - 1)) for i in range(n_samples)]
+
+    sampled_frames: List[np.ndarray] = []
+    for frac in sample_fracs:
+        t_sec = start_sec + (duration * frac)
+        cap.set(cv2.CAP_PROP_POS_MSEC, t_sec * 1000.0)
+        ret, f = cap.read()
+        if ret and f is not None:
+            sampled_frames.append(f)
+    cap.release()
+
+    thumb_path_str = None
+    sharpness, brightness = None, None
+    semantics = {
+        "has_faces": False,
+        "face_count": 0,
+        "dominant_expression": None,
+        "smile_score": None,
+        "subject_prominence": "scenic",
+    }
+
+    if sampled_frames:
+        semantics, best_idx = analyze_frames_semantics(sampled_frames)
+        frame = sampled_frames[best_idx]
+        thumb_name = f"{source_path.stem}_seg_{int(start_sec * 1000)}_{int(end_sec * 1000)}.jpg"
+        thumb_path = output_dir / thumb_name
+        h, w = frame.shape[:2]
+        target_w = 480
+        target_h = int(h * (target_w / w)) if w > 0 else h
+        resized = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+        cv2.imwrite(str(thumb_path), resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        thumb_path_str = str(thumb_path)
+        sharpness, brightness = compute_frame_metrics(frame)
+
+    return SceneCut(
+        scene_id=scene_id,
+        source_file=str(source_path.resolve()),
+        start_time=round(start_sec, 3),
+        end_time=round(end_sec, 3),
+        duration=round(duration, 3),
+        keyframe_path=thumb_path_str,
+        sharpness_score=sharpness,
+        motion_score=None,
+        brightness_score=brightness,
+        has_faces=semantics["has_faces"],
+        face_count=semantics["face_count"],
+        dominant_expression=semantics["dominant_expression"],
+        smile_score=semantics["smile_score"],
+        subject_prominence=semantics["subject_prominence"],
+    )
