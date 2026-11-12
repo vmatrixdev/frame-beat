@@ -13,6 +13,7 @@ import type { BeatsData, ScenesCatalog, Timeline, SceneCut } from "./types/schem
 import { engineClient, isTauriEnvironment } from "./services/engineClient";
 import { audioEngine } from "./services/audioEngine";
 import { DropZones } from "./components/DropZones";
+import { MediaLibraryTree } from "./components/MediaLibraryTree";
 import { HighlightsList } from "./components/HighlightsList";
 import { WaveformVisualizer } from "./components/WaveformVisualizer";
 import { TimelineTrack } from "./components/TimelineTrack";
@@ -34,7 +35,7 @@ export default function App() {
   const [prompt, setPrompt] = useState<string>(
     "💍 Wedding: Emotional pacing with gentle crossfades, holding on warm portraits during melodic verses"
   );
-  const [projectTitle, setProjectTitle] = useState<string>("My Cinematic Montage");
+  const [projectTitle] = useState<string>("My Cinematic Montage");
 
   // Analysis & Engine state
   const [isAnalyzingAudio, setIsAnalyzingAudio] = useState<boolean>(false);
@@ -127,44 +128,17 @@ export default function App() {
     }
   };
 
-  // Instant Demo Fixtures Loader
-  const handleLoadDemoFixtures = () => {
-    const fixtures = engineClient.loadDemoFixtures();
-    setAudioFile(fixtures.timeline.target_audio);
-    setVideoDir("anime_raws_1080p");
-    setBeats(fixtures.beats);
-    setScenes(fixtures.scenes);
-    setTimeline(fixtures.timeline);
-    setProjectTitle(fixtures.timeline.project_title);
-    setCurrentTime(0);
-    setIsPlaying(false);
-    audioEngine.stop();
-    audioEngine.setSyntheticBeats(fixtures.beats);
-    if (fixtures.scenes.scenes.length > 0) {
-      setPreviewScene(fixtures.scenes.scenes[0]);
-    }
-  };
-
   // Direct AMV Timeline with Gemini LLM / Procedural Director
   const handleGenerateTimeline = async () => {
     if (!beats || !scenes) {
-      // Auto-populate demo inputs if empty
-      const fixtures = engineClient.loadDemoFixtures();
-      setBeats(fixtures.beats);
-      setScenes(fixtures.scenes);
-      setAudioFile(fixtures.timeline.target_audio);
-      setVideoDir("anime_raws_1080p");
-      audioEngine.setSyntheticBeats(fixtures.beats);
+      return;
     }
-
-    const currentBeats = beats || engineClient.loadDemoFixtures().beats;
-    const currentScenes = scenes || engineClient.loadDemoFixtures().scenes;
 
     setIsDirecting(true);
     try {
       const generated = await engineClient.directAmv(
-        currentBeats,
-        currentScenes,
+        beats,
+        scenes,
         prompt,
         projectTitle
       );
@@ -394,11 +368,20 @@ export default function App() {
                   totalScenes={scenes?.total_scenes}
                   onSelectAudio={handleSelectAudio}
                   onSelectVideoDir={handleSelectVideoDir}
-                  onLoadDemoFixtures={handleLoadDemoFixtures}
                   onImportScenesCatalog={handleImportScenesCatalog}
                   onViewHighlights={() => setSidebarTab("highlights")}
                 />
               </div>
+
+              {/* Project Media Library Tree (Audio + Raw Videos/Photos + Expandable Cuts) */}
+              <MediaLibraryTree
+                audioFile={audioFile}
+                beats={beats}
+                catalog={scenes}
+                activeScene={previewScene}
+                onSelectScene={handleSelectHighlightScene}
+                onSelectAudioTrack={() => setPreviewScene(null)}
+              />
 
               {/* Section 2: LLM Director Directive */}
               <div className="space-y-2.5">
@@ -433,7 +416,7 @@ export default function App() {
                 {/* Generate Action Button */}
                 <button
                   onClick={handleGenerateTimeline}
-                  disabled={isDirecting}
+                  disabled={isDirecting || !beats || !scenes}
                   className="w-full py-2.5 mt-2 rounded-xl bg-gradient-to-r from-indigo-600 to-rose-600 hover:from-indigo-500 hover:to-rose-500 disabled:opacity-50 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition active:scale-[0.99]"
                 >
                   {isDirecting ? (

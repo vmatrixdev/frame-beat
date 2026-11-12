@@ -230,7 +230,9 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
               <div className="flex items-center gap-2">
                 <div className="px-3 py-1 rounded-lg bg-purple-950/90 backdrop-blur-md border border-purple-500/50 text-xs font-mono flex items-center gap-2 text-purple-200 shadow-lg">
                   <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
-                  <span className="font-bold">HIGHLIGHT #{previewScene.scene_id + 1}</span>
+                  <span className="font-bold">
+                    {previewScene.scene_id < 0 ? "RAW ASSET" : `HIGHLIGHT #${previewScene.scene_id + 1}`}
+                  </span>
                   <span className="text-purple-400 font-semibold uppercase text-[10px] px-1.5 py-0.2 rounded bg-purple-900/60">
                     {isImg ? "PHOTO" : "VIDEO CLIP"}
                   </span>
@@ -279,6 +281,10 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                 <div className="text-[11px] font-mono text-slate-400">
                   {isImg ? (
                     <span className="text-emerald-400">Elastic Duration (Cuts to any beat)</span>
+                  ) : previewScene.scene_id < 0 ? (
+                    <span className="text-indigo-300">
+                      Full Raw Video (Duration: {previewScene.duration.toFixed(2)}s)
+                    </span>
                   ) : (
                     <span>
                       Slice: {previewScene.start_time.toFixed(2)}s – {previewScene.end_time.toFixed(2)}s (Duration: {previewScene.duration.toFixed(2)}s)

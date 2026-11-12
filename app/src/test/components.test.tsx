@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { DropZones } from "../components/DropZones";
+import { MediaLibraryTree } from "../components/MediaLibraryTree";
 import { HighlightsList } from "../components/HighlightsList";
 import { WaveformVisualizer } from "../components/WaveformVisualizer";
 import { TimelineTrack } from "../components/TimelineTrack";
@@ -10,8 +11,7 @@ import { DEMO_BEATS, DEMO_TIMELINE } from "../services/mockData";
 
 describe("React UI Components", () => {
   describe("DropZones Component", () => {
-    it("renders drop zones and triggers load demo fixtures callback", () => {
-      const handleLoadDemo = vi.fn();
+    it("renders compact drop zones and import catalog button without demo fixtures", () => {
       const handleSelectAudio = vi.fn();
       const handleSelectVideoDir = vi.fn();
 
@@ -21,36 +21,30 @@ describe("React UI Components", () => {
           videoDir={null}
           onSelectAudio={handleSelectAudio}
           onSelectVideoDir={handleSelectVideoDir}
-          onLoadDemoFixtures={handleLoadDemo}
         />
       );
 
-      const demoBtn = screen.getByTestId("load-demo-button");
-      expect(demoBtn).toBeInTheDocument();
-      fireEvent.click(demoBtn);
-      expect(handleLoadDemo).toHaveBeenCalledTimes(1);
-
-      const audioZone = screen.getByTestId("audio-drop-zone");
-      fireEvent.click(audioZone);
-      expect(handleSelectAudio).toHaveBeenCalled();
+      expect(screen.queryByTestId("load-demo-button")).not.toBeInTheDocument();
+      expect(screen.getByTestId("audio-drop-zone")).toBeInTheDocument();
+      expect(screen.getByTestId("video-drop-zone")).toBeInTheDocument();
+      expect(screen.getByText("+ Audio")).toBeInTheDocument();
+      expect(screen.getByText("+ Media")).toBeInTheDocument();
     });
 
     it("displays audio bpm and duration when provided", () => {
       render(
         <DropZones
-          audioFile="synthwave_120bpm.wav"
-          videoDir="anime_raws"
+          audioFile="wedding_song.wav"
+          videoDir="family_media"
           audioBpm={120}
           audioDuration={16.0}
           totalScenes={6}
           onSelectAudio={vi.fn()}
           onSelectVideoDir={vi.fn()}
-          onLoadDemoFixtures={vi.fn()}
         />
       );
 
-      expect(screen.getByText("120 BPM")).toBeInTheDocument();
-      expect(screen.getByText("16.0s")).toBeInTheDocument();
+      expect(screen.getByText("120 BPM • 16.0s")).toBeInTheDocument();
       expect(screen.getByText("6 scenes")).toBeInTheDocument();
     });
 
@@ -62,7 +56,6 @@ describe("React UI Components", () => {
           videoDir={null}
           onSelectAudio={vi.fn()}
           onSelectVideoDir={vi.fn()}
-          onLoadDemoFixtures={vi.fn()}
           onImportScenesCatalog={handleImportCatalog}
         />
       );
@@ -70,6 +63,73 @@ describe("React UI Components", () => {
       const importBtn = screen.getByTestId("import-catalog-button");
       expect(importBtn).toBeInTheDocument();
       expect(screen.getByText("Import Catalog (.json)")).toBeInTheDocument();
+    });
+  });
+
+  describe("MediaLibraryTree Component", () => {
+    it("renders hierarchical audio, raw videos with expandable cuts, and raw photos", () => {
+      const handleSelectScene = vi.fn();
+      const mockCatalog = {
+        source_files: ["/media/clip1.mp4", "/media/photo1.jpg"],
+        total_scenes: 3,
+        scenes: [
+          {
+            scene_id: 0,
+            source_file: "/media/clip1.mp4",
+            start_time: 0.0,
+            end_time: 2.5,
+            duration: 2.5,
+            media_type: "video" as const,
+            is_still_image: false,
+          },
+          {
+            scene_id: 1,
+            source_file: "/media/clip1.mp4",
+            start_time: 2.5,
+            end_time: 6.0,
+            duration: 3.5,
+            media_type: "video" as const,
+            is_still_image: false,
+          },
+          {
+            scene_id: 2,
+            source_file: "/media/photo1.jpg",
+            start_time: 0.0,
+            end_time: 0.0,
+            duration: 0.0,
+            media_type: "image" as const,
+            is_still_image: true,
+            has_faces: true,
+            smile_score: 0.85,
+          },
+        ],
+      };
+
+      render(
+        <MediaLibraryTree
+          audioFile="/media/song.mp3"
+          beats={DEMO_BEATS}
+          catalog={mockCatalog}
+          activeScene={null}
+          onSelectScene={handleSelectScene}
+        />
+      );
+
+      expect(screen.getByTestId("media-library-tree")).toBeInTheDocument();
+      expect(screen.getByText("song.mp3")).toBeInTheDocument();
+      expect(screen.getByText("clip1.mp4")).toBeInTheDocument();
+      expect(screen.getByText("photo1.jpg")).toBeInTheDocument();
+
+      // Clicking raw video selects full raw video (scene_id: -1)
+      fireEvent.click(screen.getByText("clip1.mp4"));
+      expect(handleSelectScene).toHaveBeenCalledWith(
+        expect.objectContaining({ scene_id: -1, source_file: "/media/clip1.mp4" })
+      );
+
+      // Expand cuts and click first cut
+      fireEvent.click(screen.getByTitle("Expand analyzed cuts"));
+      fireEvent.click(screen.getByText("#1 (0.0s–2.5s)"));
+      expect(handleSelectScene).toHaveBeenCalledWith(mockCatalog.scenes[0]);
     });
   });
 
