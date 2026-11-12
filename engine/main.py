@@ -78,7 +78,7 @@ def direct(
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Path to write timeline.json"),
     project_title: str = typer.Option("AMV Project", "--title", help="Project Title"),
 ):
-    """Direct an AMV timeline using Gemini structured output."""
+    """Direct a beat-synchronized music video or photo/video montage timeline using Gemini or offline fallback."""
     try:
         if not beats_file.exists():
             raise FileNotFoundError(f"Beats file not found: {beats_file}")
@@ -103,7 +103,7 @@ def direct(
         else:
             typer.echo(result_json)
     except Exception as err:
-        console.print(f"[bold red]Error directing AMV: {err}[/bold red]", file=sys.stderr)
+        console.print(f"[bold red]Error directing timeline: {err}[/bold red]", file=sys.stderr)
         raise typer.Exit(code=1)
 
 

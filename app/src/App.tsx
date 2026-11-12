@@ -17,19 +17,21 @@ import { VideoPreview } from "./components/VideoPreview";
 import { ExportModal, type ExportFormat } from "./components/ExportModal";
 
 const PROMPT_PRESETS = [
-  "Dynamic action cuts timed with chorus beat drops",
-  "Rapid flash transitions on every 2nd beat",
-  "Atmospheric slow pans building into high-motion drops",
-  "High sharpness katana duels synchronized with 4/4 downbeats",
+  "💍 Wedding: Emotional pacing with gentle crossfades, holding on warm portraits during melodic verses",
+  "👶 Growing Up: Heartfelt children memory montage, soft dissolves, lingering on smiling moments",
+  "🎓 Graduation: Inspiring milestone celebration with steady build-up to celebratory chorus cuts",
+  "🎂 Birthday: Joyful rhythm cuts on snare beats, vibrant festive party highlights",
+  "✈️ Travel Recap: Dynamic tempo cuts matching drum downbeats, whip pans, scenic vistas",
+  "⚡ Action & AMV: High-octane battle cuts matching bass drops with white flash transitions",
 ];
 
 export default function App() {
   const [audioFile, setAudioFile] = useState<string | null>(null);
   const [videoDir, setVideoDir] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<string>(
-    "Dynamic action cuts timed with chorus beat drops"
+    "💍 Wedding: Emotional pacing with gentle crossfades, holding on warm portraits during melodic verses"
   );
-  const [projectTitle, setProjectTitle] = useState<string>("Neon Cybernetic Overdrive");
+  const [projectTitle, setProjectTitle] = useState<string>("My Cinematic Montage");
 
   // Analysis & Engine state
   const [isAnalyzingAudio, setIsAnalyzingAudio] = useState<boolean>(false);
@@ -361,7 +363,7 @@ export default function App() {
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                2. Director Directive
+                2. Director Directive & Style
               </h2>
               <span className="text-[10px] text-indigo-400 font-mono">Gemini Flash</span>
             </div>
@@ -370,7 +372,7 @@ export default function App() {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={3}
-              placeholder="Tell the Gemini Director how to pace and cut the AMV..."
+              placeholder="Tell the Director how to pace and cut: e.g. 'Wedding montage with soft crossfades', 'Children growing up memories', 'Birthday celebration', or 'Fast-paced action cuts'..."
               className="w-full text-xs rounded-xl bg-slate-950 border border-slate-800 p-3 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-200 placeholder-slate-500 resize-none"
             />
 
@@ -396,12 +398,12 @@ export default function App() {
               {isDirecting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Generating Cuts & Transitions...
+                  Directing Beat-Synced Timeline...
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />
-                  Generate AMV Timeline
+                  Generate Montage Timeline
                 </>
               )}
             </button>

@@ -102,9 +102,35 @@ def test_direct_amv_deterministic_basic(mock_beats: BeatsData, mock_catalog: Sce
         assert cut.transition in ["cut", "crossfade", "flash_white", "zoom_in", "whip_pan"]
 
 
+def test_direct_amv_genre_adaptation(mock_beats: BeatsData, mock_catalog: ScenesCatalog):
+    """Verifies that the director adapts pacing and transitions to genre (e.g. wedding vs action)."""
+    # 1. Emotional / Wedding / Family / Memories
+    wedding_tl = direct_amv_deterministic(
+        beats=mock_beats,
+        catalog=mock_catalog,
+        user_prompt="Emotional wedding ceremony montage with soft dissolves and warm photos",
+    )
+    assert isinstance(wedding_tl, Timeline)
+    # Emotional mode prefers crossfades and avoids harsh flash_white
+    transitions = [c.transition for c in wedding_tl.cuts]
+    assert "crossfade" in transitions
+    assert "flash_white" not in transitions
+
+    # 2. Action / AMV / Battle
+    action_tl = direct_amv_deterministic(
+        beats=mock_beats,
+        catalog=mock_catalog,
+        user_prompt="High-octane action AMV battle with rapid cuts and flash transitions",
+    )
+    assert isinstance(action_tl, Timeline)
+    action_transitions = [c.transition for c in action_tl.cuts]
+    assert "flash_white" in action_transitions or "whip_pan" in action_transitions
+
+
 def test_direct_amv_offline_fallback(mock_beats: BeatsData, mock_catalog: ScenesCatalog, monkeypatch):
     """Verifies direct_amv transparently falls back when GEMINI_API_KEY is not configured."""
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr("engine.director.load_dotenv_if_present", lambda: None)
 
     timeline = direct_amv(
         beats=mock_beats,

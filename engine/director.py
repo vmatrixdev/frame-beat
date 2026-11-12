@@ -39,17 +39,32 @@ def load_dotenv_if_present() -> None:
             break
 
 DIRECTOR_SYSTEM_INSTRUCTION = """
-You are the AI Director for an Anime Music Video (AMV) Maker.
-Your task is to craft a dramatic, tightly paced timeline by aligning visual cuts with musical beats and dynamic energy.
+You are an expert AI Music Video & Visual Montage Director.
+Your task is to craft an emotionally engaging, rhythmically synchronized video timeline by aligning visual media (photos, video clips) with musical beats, downbeats, and energy curves.
 
-Rules:
-1. Always align cuts to detected beats or downbeats in beats.json.
-2. High energy music segments (chorus, drops) should feature fast-paced, high sharpness, dynamic scenes.
-3. Lower energy segments (intro, outro, verses) should hold longer scenes or emotional cuts.
-4. Transitions must be one of: "cut", "crossfade", "flash_white", "zoom_in", "whip_pan".
-5. Every cut's timeline_start and timeline_end must seamlessly cover the song from 0.0 to the target duration.
-6. The source clip duration (source_out - source_in) must equal (timeline_end - timeline_start).
-7. Still Images: Cuts where media_type == "image" (or is_still_image == True) are static photos/artwork with no fixed duration limit. You can flexibly hold an image for ANY beat length: quick 1-beat flashes during high-energy drops, or 2 to 4 beats during melodic sections. Set source_in=0.0 and source_out=(timeline_end - timeline_start).
+You direct across diverse genres and human storytelling formats, adapting your visual pacing, cut selection, and transitions according to the user's creative directive:
+- Life Milestones & Memories: Weddings, children growing up, family anniversaries, memorial tributes.
+- Celebrations & Events: Birthdays, graduation ceremonies, holiday parties, banquets.
+- Travel & Adventures: Vacation recaps, road trips, landscape explorations, festivals.
+- Entertainment & Action: Anime music videos (AMV), gaming montages, sports highlights, dance reels.
+- Cinematic & Creative: Narrative trailers, aesthetic visualizers, commercial promos.
+
+Core Directing Rules:
+1. Musical Synchronization:
+   - Always mathematically align cut boundaries (timeline_start and timeline_end) to detected musical beats or downbeats in beats.json.
+   - Respect musical structure: Verse sections generally hold shots for 2 to 4 beats; build-ups accelerate cut frequency; chorus drops or climaxes feature punchy rhythm cuts (1 to 2 beats); intros and outros allow room to breathe.
+2. Genre-Aware Transition Selection:
+   - Allowed transitions: "cut", "crossfade", "flash_white", "zoom_in", "whip_pan".
+   - Emotional / Nostalgic / Romantic (Weddings, Family, Milestones, Memorials): Favor gentle "crossfade" (dissolves) and clean "cut" transitions. Avoid aggressive "flash_white" or rapid whip pans unless the music features an upbeat crescendo.
+   - Dynamic / Upbeat / Action (Parties, AMVs, Sports, Travel): Use energetic cuts, "whip_pan", "zoom_in", and "flash_white" on major downbeat impacts or bass drops.
+3. Media Type Handling:
+   - Still Images (media_type == "image" or is_still_image == True): Static photos have elastic duration! They can hold for multi-measure emotional portraits (e.g. 2.0s-4.0s) during quiet verses, or flash rhythmically on downbeats. Set source_in = 0.0 and source_out = (timeline_end - timeline_start).
+   - Video Clips (media_type == "video"): Respect the clip's physical source bounds. Ensure source_out <= clip.end_time and (source_out - source_in) == (timeline_end - timeline_start).
+4. Visual Quality & Focus:
+   - Use sharpness and brightness scores intelligently: place the clearest, highest-sharpness portraits and climax scenes during musical peaks and chorus lines.
+5. Continuity & Pacing:
+   - The timeline must seamlessly cover from 0.0 seconds to music_profile.duration_sec with zero gaps and zero overlaps.
+   - Avoid monotonous repetitions of the exact same shot consecutively.
 """
 
 
@@ -57,38 +72,72 @@ def direct_amv_deterministic(
     beats: BeatsData,
     catalog: ScenesCatalog,
     user_prompt: str = "",
-    project_title: str = "AMV Project",
+    project_title: str = "Montage Project",
     target_audio: str = "soundtrack.wav",
 ) -> Timeline:
     """
     Offline deterministic director: aligns cuts to downbeats and energy profiles.
+    Adapts pacing and transitions based on user prompt (e.g. wedding/family vs action/AMV).
     Guarantees seamless timeline coverage and accurate source-to-timeline duration mapping.
     """
     if not catalog.scenes:
-        raise ValueError("Cannot direct AMV: ScenesCatalog contains no scenes.")
+        raise ValueError("Cannot direct timeline: ScenesCatalog contains no scenes.")
 
     duration_sec = beats.duration_sec
     if duration_sec <= 0:
-        raise ValueError("Cannot direct AMV: Audio duration must be greater than 0.")
+        raise ValueError("Cannot direct timeline: Audio duration must be greater than 0.")
+
+    prompt_lower = (user_prompt or "").lower()
+    is_emotional = any(
+        w in prompt_lower
+        for w in [
+            "wedding",
+            "grow",
+            "child",
+            "family",
+            "birthday",
+            "graduation",
+            "ceremony",
+            "memorial",
+            "gentle",
+            "slow",
+            "love",
+            "photo",
+            "nostalgic",
+            "memory",
+            "memories",
+            "soft",
+        ]
+    )
+    is_action = any(
+        w in prompt_lower
+        for w in ["action", "fast", "drop", "battle", "amv", "hype", "intense", "rock", "rap", "dance"]
+    )
 
     # Collect cut boundary points on the timeline
     cut_points: List[float] = [0.0]
 
-    # Prefer downbeats for cut boundaries
+    # Select downbeats / beat step based on genre pacing
     valid_downbeats = [db for db in beats.downbeats if 0.05 < db < (duration_sec - 0.2)]
 
-    if valid_downbeats:
+    if is_emotional and len(valid_downbeats) > 4:
+        # Longer emotional holds: group downbeats every 2 bars (approx 3.0s - 4.5s)
+        for i in range(0, len(valid_downbeats), 2):
+            db = valid_downbeats[i]
+            if 0.05 < db < (duration_sec - 0.2):
+                cut_points.append(db)
+    elif valid_downbeats:
         cut_points.extend(valid_downbeats)
     elif beats.beats:
-        # Fallback to every 4th beat
-        step = 4 if len(beats.beats) >= 4 else 1
+        step = 8 if is_emotional else (2 if is_action else 4)
+        step = min(step, max(1, len(beats.beats) // 2))
         for i in range(0, len(beats.beats), step):
             b_t = beats.beats[i]
             if 0.05 < b_t < (duration_sec - 0.2):
                 cut_points.append(b_t)
     else:
-        # Fallback to 2-second pacing intervals
-        interval = 2.0
+        # Fallback to pacing intervals
+        interval = 3.5 if is_emotional else 2.0
         cur_t = interval
         while cur_t < (duration_sec - 0.2):
             cut_points.append(cur_t)
@@ -97,10 +146,15 @@ def direct_amv_deterministic(
     cut_points.append(duration_sec)
     cut_points = sorted(list(set([round(p, 3) for p in cut_points])))
 
-    # Segregate scenes by sharpness for energy-responsive selection
+    # Segregate scenes by sharpness and brightness for intelligent selection
     scenes_by_sharpness = sorted(
         catalog.scenes,
         key=lambda s: s.sharpness_score if s.sharpness_score is not None else 0.0,
+        reverse=True,
+    )
+    scenes_by_brightness = sorted(
+        catalog.scenes,
+        key=lambda s: s.brightness_score if s.brightness_score is not None else 0.0,
         reverse=True,
     )
 
@@ -123,10 +177,22 @@ def direct_amv_deterministic(
                 segment_level = seg.level
                 break
 
-        # Select scene based on energy level
-        if segment_level in ("high", "drop") and len(scenes_by_sharpness) > 1:
-            chosen_scene = scenes_by_sharpness[scene_idx % len(scenes_by_sharpness)]
-            transition = "flash_white" if segment_level == "drop" else "cut"
+        # Select scene and transition based on genre and energy level
+        if is_emotional:
+            # Weddings, family memories, children growing: soft crossfades and warm visuals
+            chosen_scene = (
+                scenes_by_brightness[scene_idx % len(scenes_by_brightness)]
+                if scenes_by_brightness
+                else catalog.scenes[scene_idx % len(catalog.scenes)]
+            )
+            transition = "crossfade" if i > 0 else "cut"
+        elif is_action or segment_level in ("high", "drop"):
+            chosen_scene = (
+                scenes_by_sharpness[scene_idx % len(scenes_by_sharpness)]
+                if len(scenes_by_sharpness) > 1
+                else catalog.scenes[scene_idx % len(catalog.scenes)]
+            )
+            transition = "flash_white" if segment_level == "drop" else ("whip_pan" if (i % 3 == 0) else "cut")
         elif segment_level in ("low", "intro", "outro"):
             chosen_scene = catalog.scenes[scene_idx % len(catalog.scenes)]
             transition = "crossfade" if i > 0 else "cut"
@@ -136,7 +202,8 @@ def direct_amv_deterministic(
 
         scene_idx += 1
 
-        source_in = chosen_scene.start_time
+        is_img = chosen_scene.is_still_image or chosen_scene.media_type == "image"
+        source_in = 0.0 if is_img else chosen_scene.start_time
         source_out = round(source_in + cut_duration, 3)
 
         cuts.append(
@@ -147,7 +214,7 @@ def direct_amv_deterministic(
                 timeline_start=round(t_start, 3),
                 timeline_end=round(t_end, 3),
                 transition=transition,
-                pacing_beat_interval=4,
+                pacing_beat_interval=8 if is_emotional else 4,
             )
         )
 
@@ -156,6 +223,10 @@ def direct_amv_deterministic(
         target_audio=target_audio,
         cuts=cuts,
     )
+
+
+# General alias
+direct_timeline_deterministic = direct_amv_deterministic
 
 
 def direct_amv(
@@ -212,7 +283,7 @@ def direct_amv(
         }
 
         prompt = (
-            f"Create an AMV timeline matching this creative prompt: '{user_prompt}'.\n"
+            f"Direct a music-synchronized video & photo montage timeline matching this creative prompt: '{user_prompt}'.\n"
             f"Data:\n{json.dumps(director_input, indent=2)}"
         )
 
@@ -239,3 +310,7 @@ def direct_amv(
             project_title=project_title,
             target_audio=target_audio,
         )
+
+
+# General alias
+direct_timeline = direct_amv

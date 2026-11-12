@@ -107,7 +107,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
           </div>
           <div>
             <div className="text-xs font-semibold text-indigo-200">Interactive Demo Pack</div>
-            <div className="text-[11px] text-slate-400">120 BPM Synthwave + 6 Action Scenes</div>
+            <div className="text-[11px] text-slate-400">120 BPM Soundtrack + 6 Visual Scenes</div>
           </div>
         </div>
         <button

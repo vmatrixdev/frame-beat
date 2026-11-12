@@ -196,9 +196,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 onChange={(e) => setFps(Number(e.target.value))}
                 className="w-full text-xs bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
               >
-                <option value={24}>24 FPS (Cinematic Anime Standard)</option>
-                <option value={30}>30 FPS</option>
-                <option value={60}>60 FPS (High Motion)</option>
+                <option value={24}>24 FPS (Cinematic 24p Standard)</option>
+                <option value={30}>30 FPS (Standard Video / Social)</option>
+                <option value={60}>60 FPS (High Motion / Action)</option>
               </select>
             </div>
           </div>
