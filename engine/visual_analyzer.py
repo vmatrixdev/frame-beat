@@ -12,7 +12,7 @@ import numpy as np
 from scenedetect import open_video, SceneManager, ContentDetector
 
 from engine.models import SceneCut, ScenesCatalog
-from engine.face_analyzer import analyze_frame_semantics
+from engine.face_analyzer import analyze_frame_semantics, analyze_frames_semantics
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -123,10 +123,15 @@ def analyze_video(
     for idx, (start_sec, end_sec) in enumerate(raw_scenes):
         duration = max(0.0, end_sec - start_sec)
 
-        # Extract midpoint frame for keyframe preview
-        mid_sec = start_sec + (duration / 2.0)
-        cap.set(cv2.CAP_PROP_POS_MSEC, mid_sec * 1000.0)
-        ret, frame = cap.read()
+        # Sample evenly spaced frames across the highlight segment (up to 5)
+        sample_fracs = [0.5] if duration <= 1.0 else [0.15, 0.35, 0.5, 0.65, 0.85]
+        sampled_frames: List[np.ndarray] = []
+        for frac in sample_fracs:
+            t_sec = start_sec + (duration * frac)
+            cap.set(cv2.CAP_PROP_POS_MSEC, t_sec * 1000.0)
+            ret, f = cap.read()
+            if ret and f is not None:
+                sampled_frames.append(f)
 
         thumb_path_str = None
         sharpness, brightness = None, None
@@ -138,7 +143,9 @@ def analyze_video(
             "subject_prominence": "scenic",
         }
 
-        if ret and frame is not None:
+        if sampled_frames:
+            semantics, best_idx = analyze_frames_semantics(sampled_frames)
+            frame = sampled_frames[best_idx]
             thumb_name = f"{video_path.stem}_scene_{idx:04d}.jpg"
             thumb_path = output_dir / thumb_name
             # Resize thumbnail for lightweight LLM ingestion and fast UI rendering
@@ -149,7 +156,6 @@ def analyze_video(
             cv2.imwrite(str(thumb_path), resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
             thumb_path_str = str(thumb_path)
             sharpness, brightness = compute_frame_metrics(frame)
-            semantics = analyze_frame_semantics(frame)
 
         scene_cuts.append(
             SceneCut(

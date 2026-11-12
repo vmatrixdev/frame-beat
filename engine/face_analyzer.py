@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
@@ -41,8 +41,8 @@ def _get_landmarker(model_path: Path = _DEFAULT_MODEL_PATH) -> Optional[Any]:
             base_options=base_options,
             output_face_blendshapes=True,
             num_faces=5,
-            min_face_detection_confidence=0.4,
-            min_face_presence_confidence=0.4,
+            min_face_detection_confidence=0.3,
+            min_face_presence_confidence=0.3,
         )
         _LANDMARKER_INSTANCE = mp_vision.FaceLandmarker.create_from_options(options)
         return _LANDMARKER_INSTANCE
@@ -146,3 +146,43 @@ def analyze_frame_semantics(frame_bgr: np.ndarray) -> Dict[str, Any]:
     except Exception as e:
         logger.debug(f"Face semantic analysis error: {e}")
         return default_result
+
+
+def analyze_frames_semantics(frames_bgr: List[np.ndarray]) -> Tuple[Dict[str, Any], int]:
+    """
+    Evaluates multiple sampled frames from a video highlight segment and returns
+    (aggregated_semantics, best_frame_index). Prioritizes frames with detected
+    faces, highest smile_score, and highest face_count.
+    """
+    if not frames_bgr:
+        return {
+            "has_faces": False,
+            "face_count": 0,
+            "dominant_expression": None,
+            "smile_score": None,
+            "subject_prominence": "scenic",
+        }, 0
+
+    best_idx = len(frames_bgr) // 2
+    best_res = analyze_frame_semantics(frames_bgr[best_idx])
+    best_score = (
+        1 if best_res["has_faces"] else 0,
+        best_res["smile_score"] or 0.0,
+        best_res["face_count"] or 0,
+    )
+
+    for idx, frame in enumerate(frames_bgr):
+        if idx == best_idx:
+            continue
+        res = analyze_frame_semantics(frame)
+        score = (
+            1 if res["has_faces"] else 0,
+            res["smile_score"] or 0.0,
+            res["face_count"] or 0,
+        )
+        if score > best_score:
+            best_score = score
+            best_res = res
+            best_idx = idx
+
+    return best_res, best_idx
