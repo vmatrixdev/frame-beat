@@ -57,6 +57,11 @@ describe("NLE timelineEditor utilities", () => {
     expect(stretched[0].timeline_end).toBe(5.5);
     expect(stretched[0].source_out).toBe(7.5);
 
+    // Clamped to maxSourceDuration (6.5s) -> source_out cannot exceed 6.5s
+    const clamped = trimCutRight(BASE_CUTS, 0, 5.0, { maxSourceDuration: 6.5 });
+    expect(clamped[0].source_out).toBe(6.5);
+    expect(clamped[0].timeline_end).toBe(4.5);
+
     const imgCut: TimelineCut[] = [
       {
         source_file: "/media/photo.jpg",

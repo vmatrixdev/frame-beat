@@ -16,6 +16,7 @@ export interface TimelineTrackProps {
   selectedCutIndex?: number | null;
   zoomLevel?: number;
   beats?: BeatsData | null;
+  sourceDurations?: Record<string, number>;
   videoTrackCount?: number;
   activeVideoTrack?: number;
   onSelectVideoTrack?: (trackIndex: number) => void;
@@ -58,6 +59,7 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
   selectedCutIndex,
   zoomLevel: externalZoomLevel,
   beats = null,
+  sourceDurations,
   videoTrackCount = 1,
   activeVideoTrack = 0,
   onSelectVideoTrack,
@@ -134,8 +136,11 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
         });
         onUpdateCuts(updated);
       } else if (dragMode.type === "trim-right") {
+        const targetCut = dragMode.snapshot[dragMode.cutIndex];
+        const maxSourceDuration = targetCut ? sourceDurations?.[targetCut.source_file] : undefined;
         const updated = trimCutRight(dragMode.snapshot, dragMode.cutIndex, deltaSec, {
           isStillImage: dragMode.isImg,
+          maxSourceDuration,
           beats,
           snapEnabled,
         });
@@ -153,7 +158,7 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [dragMode, duration, zoomLevel, isControlledZoom, beats, snapEnabled, totalTracks, onUpdateCuts]);
+  }, [dragMode, duration, zoomLevel, isControlledZoom, beats, sourceDurations, snapEnabled, totalTracks, onUpdateCuts]);
 
   const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (dragMode) return;

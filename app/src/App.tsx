@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Download,
   Layers,
@@ -89,6 +89,18 @@ export default function App() {
     ? timeline.cuts.reduce((acc, c) => Math.max(acc, c.timeline_end), 0)
     : 0;
   const duration = Math.max(maxCutEnd, beats?.duration_sec || 0, 16.0);
+
+  // Map each source video path to its total analyzed duration so right-edge trimming cannot exceed it
+  const sourceDurations = useMemo(() => {
+    const map: Record<string, number> = {};
+    if (!scenes?.scenes) return map;
+    for (const s of scenes.scenes) {
+      if (!s.is_still_image && s.media_type !== "image" && s.end_time > 0) {
+        map[s.source_file] = Math.max(map[s.source_file] || 0, s.end_time);
+      }
+    }
+    return map;
+  }, [scenes]);
 
   // Handle Audio Selection & Analysis (Primary or Additional Audio Track)
   const handleSelectAudio = async (path: string, file?: File, appendNewTrack = false) => {
@@ -879,6 +891,7 @@ export default function App() {
                   duration={duration}
                   zoomLevel={timelineZoom}
                   beats={beats}
+                  sourceDurations={sourceDurations}
                   videoTrackCount={videoTrackCount}
                   activeVideoTrack={activeVideoTrack}
                   onSelectVideoTrack={setActiveVideoTrack}
