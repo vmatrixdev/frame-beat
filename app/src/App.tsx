@@ -265,7 +265,8 @@ export default function App() {
         beats,
         scenes,
         prompt,
-        projectTitle
+        projectTitle,
+        audioFile || undefined
       );
       setTimeline(generated);
       setCurrentTime(0);

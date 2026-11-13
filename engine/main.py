@@ -138,6 +138,7 @@ def direct(
     prompt: str = typer.Option(..., "--prompt", "-p", help="Creative directive for the AMV"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Path to write timeline.json"),
     project_title: str = typer.Option("AMV Project", "--title", help="Project Title"),
+    target_audio: str = typer.Option("soundtrack.wav", "--audio", help="Target audio path/filename"),
 ):
     """Direct a beat-synchronized music video or photo/video montage timeline using Gemini or offline fallback."""
     try:
@@ -154,6 +155,7 @@ def direct(
             catalog=scenes,
             user_prompt=prompt,
             project_title=project_title,
+            target_audio=target_audio,
         )
 
         result_json = timeline.model_dump_json(indent=2)

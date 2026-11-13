@@ -244,6 +244,77 @@ function amvEngineVitePlugin(): Plugin {
         });
       });
 
+      // API to invoke Python/Gemini AI Director with beats + scenes + prompt
+      server.middlewares.use("/api/direct", (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          return res.end();
+        }
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk: Buffer) => chunks.push(chunk));
+        req.on("end", async () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+            const { beats, scenes, prompt, projectTitle, targetAudio } = body;
+            if (!beats || !scenes) {
+              res.statusCode = 400;
+              return res.end(JSON.stringify({ error: "beats and scenes are required" }));
+            }
+
+            const projectRoot = path.resolve(__dirname, "..");
+            const cacheDir = path.join(projectRoot, "cache");
+            fs.mkdirSync(cacheDir, { recursive: true });
+            const beatsPath = path.join(cacheDir, "direct_beats.json");
+            const scenesPath = path.join(cacheDir, "direct_scenes.json");
+            fs.writeFileSync(beatsPath, JSON.stringify(beats, null, 2));
+            fs.writeFileSync(scenesPath, JSON.stringify(scenes, null, 2));
+
+            const pythonBin = path.join(projectRoot, "engine", ".venv", "bin", "python");
+            const scriptPath = path.join(projectRoot, "engine", "main.py");
+            const args = [
+              scriptPath,
+              "direct",
+              "--beats",
+              beatsPath,
+              "--scenes",
+              scenesPath,
+              "--prompt",
+              String(prompt || ""),
+              "--title",
+              String(projectTitle || "AMV Project"),
+              "--audio",
+              String(targetAudio || "soundtrack.wav"),
+            ];
+
+            const proc = spawn(pythonBin, args, {
+              cwd: projectRoot,
+              env: { ...process.env, PYTHONPATH: projectRoot },
+            });
+
+            let stdout = "";
+            let stderr = "";
+            proc.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+            proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+
+            proc.on("close", (code: number) => {
+              const jsonStart = stdout.indexOf("{");
+              const cleanJson = jsonStart >= 0 ? stdout.slice(jsonStart) : "";
+              if (code === 0 && cleanJson.trim()) {
+                res.setHeader("Content-Type", "application/json");
+                res.end(cleanJson);
+              } else {
+                res.statusCode = 500;
+                res.end(JSON.stringify({ error: stderr || "AI Director failed" }));
+              }
+            });
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: msg }));
+          }
+        });
+      });
+
       // Stream local media files (MP4/WebM/MOV/JPG/PNG) with Range support for HTML5 video
       server.middlewares.use("/api/media-stream", (req, res) => {
         try {

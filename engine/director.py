@@ -256,7 +256,7 @@ def direct_amv(
     """
     load_dotenv_if_present()
     key = api_key or os.environ.get("GEMINI_API_KEY")
-    resolved_model = model or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+    resolved_model = model or os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
     if force_fallback or not key:
         logger.info("GEMINI_API_KEY not configured or offline mode requested. Using deterministic director.")
@@ -269,6 +269,7 @@ def direct_amv(
         )
 
     try:
+        from urllib.parse import parse_qs, urlparse
         from google import genai
         from google.genai import types
 
@@ -285,6 +286,7 @@ def direct_amv(
                     "start_time": s.start_time,
                     "end_time": s.end_time,
                     "sharpness": s.sharpness_score,
+                    "motion_score": s.motion_score,
                     "brightness": s.brightness_score,
                     "media_type": s.media_type,
                     "is_still_image": s.is_still_image,
@@ -303,9 +305,34 @@ def direct_amv(
             f"Data:\n{json.dumps(director_input, indent=2)}"
         )
 
+        contents: list = [prompt]
+        project_root = Path(__file__).resolve().parent.parent
+        attached_thumbs = 0
+        for s in catalog.scenes:
+            if attached_thumbs >= 40 or not s.keyframe_path:
+                break
+            kp = s.keyframe_path
+            if kp.startswith("/api/thumb"):
+                qs = parse_qs(urlparse(kp).query)
+                kp = qs.get("path", [""])[0]
+            if not kp:
+                continue
+            thumb_file = Path(kp)
+            if not thumb_file.is_absolute():
+                thumb_file = project_root / thumb_file
+            if thumb_file.is_file():
+                contents.append(f"Keyframe for scene_id={s.scene_id} ({Path(s.source_file).name}):")
+                contents.append(
+                    types.Part.from_bytes(
+                        data=thumb_file.read_bytes(),
+                        mime_type="image/jpeg",
+                    )
+                )
+                attached_thumbs += 1
+
         response = client.models.generate_content(
             model=resolved_model,
-            contents=prompt,
+            contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=DIRECTOR_SYSTEM_INSTRUCTION,
                 response_mime_type="application/json",
@@ -316,6 +343,11 @@ def direct_amv(
 
         parsed = json.loads(response.text)
         timeline = Timeline.model_validate(parsed)
+        if target_audio:
+            timeline.target_audio = target_audio
+        for cut in timeline.cuts:
+            if cut.track_index is None:
+                cut.track_index = 0
         return timeline
     except Exception as e:
         logger.warning(f"Gemini API direct call failed ({e}); falling back to deterministic director.")

@@ -374,9 +374,28 @@ class EngineClient {
     beats: BeatsData,
     catalog: ScenesCatalog,
     prompt: string,
-    projectTitle: string = "AMV Project"
+    projectTitle: string = "AMV Project",
+    targetAudio?: string
   ): Promise<Timeline> {
     if (this.isMockMode) {
+      try {
+        const res = await fetch("/api/direct", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            beats,
+            scenes: catalog,
+            prompt,
+            projectTitle,
+            targetAudio: targetAudio || "soundtrack.wav",
+          }),
+        });
+        if (res.ok) {
+          return (await res.json()) as Timeline;
+        }
+      } catch (e) {
+        console.warn("Dev server AI Director failed, falling back to procedural:", e);
+      }
       await new Promise((resolve) => setTimeout(resolve, 250));
       return generateProceduralTimeline(beats, catalog, prompt, projectTitle);
     }
