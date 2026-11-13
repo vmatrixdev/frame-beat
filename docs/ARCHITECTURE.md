@@ -2,12 +2,13 @@
 
 ## Overview
 
-AMV Maker is an automated Anime Music Video production workstation designed to generate professional, beat-synchronized video edits from raw source video clips and audio tracks.
+AMV Maker is a universal, beat-synchronized visual storytelling and music video studio that crafts rhythm-locked edits from any combination of raw video clips, still photos, and music tracks—supporting life milestones (weddings, children growing up, birthdays), travel recaps, and high-energy AMVs/action reels.
 
-The platform is designed around three fundamental core principles:
-1. **Deterministic Timing**: Audio beats and visual cuts align using millisecond-accurate mathematical markers rather than approximate frame sleep loops.
-2. **Local Processing for Heavy Media**: Raw high-bitrate media (HEVC/H.264 video, FLAC/WAV audio) stays on the user's workstation. Only low-resolution keyframes, metadata, and mathematical timestamps are passed to cloud LLM APIs.
-3. **Decoupled Architecture**: The media analysis engine (Python CLI/sidecar) is decoupled from the user interface (Tauri v2 / React / TypeScript). Communication occurs via typed JSON schemas over standard input/output (IPC) and standard process exit codes.
+The platform is built around four core principles:
+1. **Deterministic Timing**: Audio beats, millisecond-level audio cue notes, and visual cuts align using exact timestamps rather than approximate sleep loops.
+2. **Local Processing for Heavy Media**: Raw high-bitrate media (HEVC/H.264 video, high-res photos, FLAC/WAV/MP3 audio) stays local. Only typed metadata, manual tags/notes, mathematical timestamps, and low-resolution 480px JPEG keyframes are passed to cloud LLM APIs.
+3. **Decoupled Architecture**: The media analysis engine (Python CLI/sidecar) is strictly decoupled from the user interface (Tauri v2 / React / TypeScript). Communication occurs via typed JSON/NDJSON schemas matching `specs/schemas.json`.
+4. **Human-in-the-Loop Direction**: Users can inspect and override every stage—tuning highlight windowing parameters per video, tagging/noting clips and photos, placing millisecond-accurate audio cue markers, and manually editing multi-track timeline cuts.
 
 ---
 
@@ -15,26 +16,29 @@ The platform is designed around three fundamental core principles:
 
 ```mermaid
 flowchart TD
-    subgraph UI ["Desktop UI (Tauri v2 + React 18)"]
-        DropZones["DropZones (Audio & Video Files)"]
+    subgraph UI ["Frontend (Tauri v2 / Vite + React 18 + TypeScript)"]
+        DropZones["DropZones & MediaLibraryTree"]
+        Annotations["AnnotationPanel (Clip Tags & ms Audio Cues)"]
         DirectorForm["Director Prompt & Controls"]
-        TimelineComp["Interactive Timeline & Beat Ruler"]
+        TimelineComp["Multi-Track Timeline & Waveform"]
         ExportModal["Export & Render Modal"]
-        EngineClient["EngineClient (IPC Sidecar Manager)"]
+        EngineClient["EngineClient (Tauri IPC / Vite Dev API)"]
     end
 
-    subgraph IPC ["Inter-Process Communication"]
-        Sidecar["amv-engine Binary Sidecar"]
-        StdoutStream["JSON Stream over stdout / stderr"]
+    subgraph IPC ["IPC & Streaming Bridges"]
+        Sidecar["Tauri Sidecar (binaries/amv-engine)"]
+        ViteAPI["Vite Dev Server Middleware (/api/*)"]
+        Stream["JSON / NDJSON over stdout & HTTP"]
     end
 
     subgraph Engine ["Python Media Engine (engine/)"]
-        subgraph P1 ["Phase 1: Feature Extraction"]
-            AudioAnalyzer["Audio Analyzer (librosa)"]
-            VisualAnalyzer["Visual Analyzer (PySceneDetect + OpenCV)"]
+        subgraph P1 ["Phase 1: Local Static Feature Extraction"]
+            AudioAnalyzer["Audio Analyzer (librosa + HPSS)"]
+            VisualAnalyzer["Visual Analyzer (PySceneDetect + Highlight Windowing + OpenCV)"]
+            FaceAnalyzer["Face Analyzer (MediaPipe FaceLandmarker)"]
         end
-        subgraph P2 ["Phase 2: LLM Director"]
-            GeminiDirector["Gemini Flash Director (Structured Output)"]
+        subgraph P2 ["Phase 2: LLM & Fallback Director"]
+            GeminiDirector["Gemini 3.5 Flash-Lite Director (Multimodal + Structured Output)"]
             DeterministicDirector["Deterministic Fallback Director"]
         end
         subgraph P3 ["Phase 3: Assembly & Export"]
@@ -44,18 +48,23 @@ flowchart TD
     end
 
     DropZones --> EngineClient
+    Annotations --> EngineClient
     DirectorForm --> EngineClient
     EngineClient --> Sidecar
+    EngineClient --> ViteAPI
     Sidecar --> AudioAnalyzer
     Sidecar --> VisualAnalyzer
+    ViteAPI --> AudioAnalyzer
+    ViteAPI --> VisualAnalyzer
+    VisualAnalyzer --> FaceAnalyzer
     AudioAnalyzer --> GeminiDirector
     VisualAnalyzer --> GeminiDirector
     GeminiDirector --> FFmpegStitcher
     GeminiDirector --> OTIOExporter
     DeterministicDirector --> FFmpegStitcher
-    FFmpegStitcher --> StdoutStream
-    StdoutStream --> TimelineComp
-    StdoutStream --> ExportModal
+    FFmpegStitcher --> Stream
+    Stream --> TimelineComp
+    Stream --> ExportModal
 ```
 
 ---
@@ -64,73 +73,53 @@ flowchart TD
 
 ### Phase 1: Local Media Feature Extraction
 
-#### 1. Audio Beat & Energy Analysis (`engine/audio_analyzer.py`)
-- **Librosa Processing**: Ingests audio files (`.wav`, `.mp3`, `.flac`, `.aac`) and computes:
-  - Tempo (BPM) via onset envelope auto-correlation.
-  - Beat timestamps via dynamic programming beat tracking.
-  - Bar downbeats (`4/4` metric alignment by default, detecting measure starts).
-- **RMS Energy Segmentation**: Divides the audio into temporal segments (e.g., 2-second analysis windows), computing Root Mean Square (RMS) energy. Quantizes energy into levels: `low`, `medium`, `high`, `drop`, `intro`, `outro`, and `build`.
-- **Output Artifact**: `beats.json` matching `BeatsData` schema.
+#### 1. Audio Beat, Band Energy & Mood Analysis (`engine/audio_analyzer.py`)
+- **Librosa Beat Tracking**: Ingests `.wav`, `.mp3`, `.flac`, `.m4a`, `.aac`, `.ogg`, `.opus` and computes BPM, beat timestamps, and `4/4` bar downbeats.
+- **Harmonic-Percussive & Band Energy (per 2s `EnergySegment`)**:
+  - Uses `librosa.effects.hpss(y)` and STFT band filtering to extract normalized `[0.0, 1.0]` scores for:
+    - `vocal_energy` (harmonic energy in `300–3400 Hz`)
+    - `percussive_energy` (percussive RMS energy)
+    - `bass_energy` (`20–250 Hz` low-end energy)
+    - `spectral_brightness` (normalized `librosa.feature.spectral_centroid`)
+  - Classifies `audio_mood` (`vocal_intimate`, `vocal_soaring`, `instrumental_calm`, `rhythmic_groove`, `high_energy_drop`, `dramatic_build`) alongside RMS `level` (`low`, `medium`, `high`, `drop`, `intro`, `outro`, `build`).
+- **Millisecond Audio Cue Notes**: Users can attach `AudioCueNote` markers (`timestamp_ms`, `tags`, `note`) directly to `BeatsData.audio_notes`.
 
-#### 2. Visual Scene Cut Detection & Keyframing (`engine/visual_analyzer.py`)
-- **PySceneDetect**: Uses `ContentDetector` (default threshold: 27.0) to identify natural cinematic scene boundaries in source footage.
-- **Keyframe Extraction**: Extracts keyframe images at the midpoint of every detected cut, resized to 320px width thumbnails saved to `cache/thumbnails/`.
-- **Image Metrics (OpenCV)**:
-  - Sharpness score calculated via Laplacian variance ($\sigma^2$).
-  - Brightness score calculated via average HSV value channel ($\mu_V$).
-- **Output Artifact**: `scenes.json` matching `ScenesCatalog` schema.
+#### 2. Visual Scene Detection, Highlight Windowing & Mood Analysis (`engine/visual_analyzer.py`, `engine/face_analyzer.py`)
+- **PySceneDetect + Visual Highlight Windowing**:
+  - Uses `ContentDetector` (configurable `--threshold`, default `27.0`) to find hard camera cuts.
+  - Subdivides long continuous takes (`> --max-scene-duration`, default `5.5s`) into non-overlapping highlight windows (`--target-window-duration` default `3.5s`, `--min-window-duration` default `2.0s`; scales down to `0.5s` quick cuts) scored by motion energy, sharpness, exposure, saturation, and MediaPipe face/smile peaks.
+  - Supports `--stream` NDJSON output (`discovered`, `file_done`, `complete`) so raw assets appear in the library immediately and cuts populate progressively.
+- **Optical Flow, Contrast & Visual Mood (OpenCV)**:
+  - `sharpness_score` (Laplacian variance), `brightness_score` (grayscale mean), `motion_score` (`0–100`), `contrast_score` (`0–100`), `saturation_score` (`0–100`).
+  - `fluidity_score` (`0–100`, video only): Farneback optical-flow (`cv2.calcOpticalFlowFarneback`) direction and magnitude consistency across sampled frames.
+  - `dramatism_score` (`0–100`), `color_mood` (`warm_golden`, `cool_cinematic`, `vibrant_festive`, `moody_dark`, `neutral_balanced`), and `visual_mood` (`joyful_bright`, `energetic_action`, `dramatic_intense`, `serene_scenic`, `melancholic_muted`, `warm_intimate`).
+- **Facial Emotion & Prominence (`engine/face_analyzer.py`)**:
+  - Runs local MediaPipe `FaceLandmarker` (`engine/assets/face_landmarker.task`) across sampled frames to extract `has_faces`, `face_count`, `subject_prominence` (`close_up`, `medium_shot`, `wide_shot`, `scenic`), `smile_score`, `dominant_expression` (`laughing / ecstatic`, `joyful / smiling`, `surprised / amazed`, `angry / intense`, `sad / melancholic`, `worried / tense`, `focused / determined`, `calm / neutral`), and `emotion_scores` (`joy`, `surprise`, `anger`, `sadness`, `worry`, `neutral`).
+- **Keyframes**: Saves `480px`-wide JPEG thumbnails to `cache/thumbnails/`.
 
 ---
 
 ### Phase 2: Director Orchestration & Cut Alignment
 
 #### 1. Cloud LLM Director (`engine/director.py`)
-- Ingests `beats.json`, `scenes.json`, and the user's creative prompt.
-- Invokes **Google Gemini 2.0 Flash / 1.5 Flash** using strict JSON output schemas (`response_schema=Timeline`).
-- Ensures that:
-  1. Cut boundaries snap exactly to detected beat timestamps.
-  2. High-energy sections (chorus, drop) receive high-sharpness, fast-moving scenes.
-  3. Transitions (`cut`, `crossfade`, `flash_white`, `zoom_in`, `whip_pan`) match musical dynamics.
-  4. Timeline coverage is contiguous without gaps or negative durations.
+- Uses `build_director_input(beats, catalog, user_prompt)` to assemble `BeatsData` (including `audio_cue_notes` with `timestamp_ms` and `timestamp_sec`, plus segment vocal/percussive/bass/mood fields), `ScenesCatalog` (all visual, fluidity, dramatism, emotion metrics, `user_tags`, and `user_note`), and up to 40 low-res 480px keyframe JPEGs.
+- Invokes **`gemini-3.5-flash-lite`** (configurable via `GEMINI_MODEL`) with `response_schema=Timeline` structured output.
 
 #### 2. Deterministic Fallback Director (`direct_amv_deterministic`)
-- Functions entirely offline without requiring network access or `GEMINI_API_KEY`.
-- Partitions timeline duration by musical downbeats and energy segments.
-- Programmatically matches scene sharpness and duration to dynamic energy profiles.
-- **Output Artifact**: `timeline.json` matching `Timeline` schema.
+- Functions offline without network access or `GEMINI_API_KEY`, aligning downbeats, energy profiles, and scene sharpness/emotion scores to produce a contiguous `Timeline`.
 
 ---
 
-### Phase 3: Assembly, Video Stitching & NLE Export
+### Phase 3: Assembly, Video Stitching & NLE Export (`engine/stitcher.py`)
 
-#### 1. Deterministic FFmpeg Stitcher (`engine/stitcher.py`)
-- Generates a single-pass `filter_complex` execution graph in FFmpeg:
-  - `trim`: Extracts the exact subclip from each source video.
-  - `setpts=PTS-STARTPTS`: Resets presentation timestamps to zero for jitter-free alignment.
-  - `scale` and `pad`: Uniformly normalizes source footage to target resolution (e.g. 1920x1080) with centered letterboxing/pillarboxing.
-  - `setsar=1`: Sets square pixel aspect ratio.
-  - `fps`: Conforms video streams to target frame rate (e.g. 24 fps).
-  - `split`: Automatically splits repeated scene streams to prevent DAG edge collisions in FFmpeg.
-  - `concat`: Concatenates all visual streams seamlessly.
-- **Hardware Acceleration**:
-  - macOS: `h264_videotoolbox` hardware encoder with automatic fallback to software `libx264`.
-  - Linux/Windows: `libx264` with configurable encoding presets (`ultrafast`, `fast`, `medium`, `slow`).
-- **Real-Time Progress**: Emits line-by-line machine-readable JSON progress events (`type: progress`, `percent`, `fps`, `speed`) over standard output.
-- **Output Artifact**: `export/amv_final.mp4` (H.264 video + AAC audio).
-
-#### 2. Professional NLE Interchange Exporters (`export_project`)
-- **OpenTimelineIO (`.otio`)**:
-  - Full multitrack timeline representation containing audio track and video cuts.
-  - Compatible with **DaVinci Resolve**, **Adobe Premiere Pro**, and **Final Cut Pro**.
-- **Final Cut Pro XML (`.fcpxml`)**:
-  - Native FCPXML v1.9 schema with format definitions, asset libraries, spine clips, and gap alignment.
-  - Ready for color grading and finishing in **Final Cut Pro X**.
+- **FFmpeg Filter Complex Stitcher**: Trims subclips and still images (`trim`, `setpts`, `scale`, `pad`, `setsar=1`, `fps`, `split`, `concat`), encoding via `h264_videotoolbox` (macOS hardware acceleration) or `libx264` with streaming NDJSON progress events.
+- **NLE Interchange Exporters (`export_project`)**: Exports OpenTimelineIO (`.otio`) and Final Cut Pro XML (`.fcpxml`) for DaVinci Resolve, Premiere Pro, and Final Cut Pro.
 
 ---
 
 ## Data Contracts (Schema Specifications)
 
-All communication between Python and TypeScript adheres to the JSON schema defined in `specs/schemas.json`.
+All communication between Python and TypeScript adheres to `specs/schemas.json` and `app/src/types/schemas.ts`:
 
 ```mermaid
 classDiagram
@@ -141,12 +130,24 @@ classDiagram
         +float[] downbeats
         +float[] beats
         +EnergySegment[] energy_segments
+        +AudioCueNote[] audio_notes
+    }
+    class AudioCueNote {
+        +string id
+        +int timestamp_ms
+        +string[] tags
+        +string note
     }
     class EnergySegment {
         +float start
         +float end
         +string level
         +string label
+        +float vocal_energy
+        +float percussive_energy
+        +float bass_energy
+        +float spectral_brightness
+        +string audio_mood
     }
     class SceneCut {
         +int scene_id
@@ -154,9 +155,26 @@ classDiagram
         +float start_time
         +float end_time
         +float duration
+        +string media_type
+        +bool is_still_image
         +string keyframe_path
         +float sharpness_score
+        +float motion_score
         +float brightness_score
+        +float contrast_score
+        +float saturation_score
+        +float fluidity_score
+        +float dramatism_score
+        +string color_mood
+        +string visual_mood
+        +bool has_faces
+        +int face_count
+        +string dominant_expression
+        +float smile_score
+        +dict emotion_scores
+        +string subject_prominence
+        +string[] user_tags
+        +string user_note
     }
     class ScenesCatalog {
         +string[] source_files
@@ -171,6 +189,9 @@ classDiagram
         +float timeline_end
         +string transition
         +int pacing_beat_interval
+        +int track_index
+        +string[] user_tags
+        +string user_note
     }
     class Timeline {
         +string project_title
@@ -178,6 +199,7 @@ classDiagram
         +TimelineCut[] cuts
     }
     BeatsData *-- EnergySegment
+    BeatsData *-- AudioCueNote
     ScenesCatalog *-- SceneCut
     Timeline *-- TimelineCut
 ```
@@ -186,44 +208,16 @@ classDiagram
 
 ## Inter-Process Communication (IPC) Protocol
 
-The Tauri v2 frontend invokes the Python sidecar as a child process via `@tauri-apps/plugin-shell`.
+- **Tauri Native Mode**: Invokes the bundled sidecar (`binaries/amv-engine`) via `@tauri-apps/plugin-shell`.
+- **Browser / Vite Dev Mode (`app/vite.config.ts`)**: Exposes HTTP & NDJSON streaming endpoints (`/api/analyze-soundtrack`, `/api/analyze-scenes`, `/api/analyze-segment`, `/api/direct`, `/api/render`, `/api/export-project`, `/api/media-stream`, `/api/thumb`) backed by `engine/.venv/bin/python engine/main.py`.
 
-### Command Line Interface Specification
+### Command Line Interface Specification (`engine/main.py`)
 
-| CLI Subcommand | Purpose | Primary Inputs | Stdout Output |
+| CLI Subcommand | Purpose | Key Options | Stdout Output |
 | :--- | :--- | :--- | :--- |
-| `analyze-soundtrack` | Extract BPM & beats | `<audio_path>` | `BeatsData` JSON |
-| `analyze-scenes` | Visual scene detection | `<video_dir> [--thumbs]` | `ScenesCatalog` JSON |
-| `direct` | AI AMV direction | `--beats --scenes --prompt` | `Timeline` JSON |
-| `render` | FFmpeg video stitch | `<timeline_file> --output [--json]` | Streaming progress JSON & result |
-| `export-project` | OTIO / FCPXML export | `<timeline_file> --output --format` | Export confirmation JSON |
-
-### Streaming Render Progress Protocol
-
-When `--json` is specified, `render` emits newline-delimited JSON objects to standard output:
-
-```json
-{"type": "progress", "percent": 42.5, "currentTime": 6.38, "totalTime": 15.0, "fps": 58.4, "speed": "2.4x", "frame": 153}
-```
-
-Upon successful completion:
-```json
-{"type": "completed", "status": "success", "outputPath": "/path/to/amv_final.mp4", "duration": 15.0}
-```
-
-If an encoding error occurs:
-```json
-{"type": "error", "status": "failed", "error": "Description of FFmpeg error"}
-```
-
----
-
-## Sidecar Packaging & Bundling
-
-Tauri sidecars require platform-specific binary naming conventions:
-- `amv-engine-aarch64-apple-darwin` (Apple Silicon macOS)
-- `amv-engine-x86_64-apple-darwin` (Intel macOS)
-- `amv-engine-x86_64-unknown-linux-gnu` (x86_64 Linux)
-- `amv-engine-x86_64-pc-windows-msvc.exe` (Windows)
-
-The repository provides `scripts/bundle_sidecar.sh` to package or link the Python engine into `app/src-tauri/binaries/` ensuring seamless execution in both development and production builds.
+| `analyze-soundtrack` | Extract BPM, beats, HPSS band energy & mood | `<audio_path> [-o]` | `BeatsData` JSON |
+| `analyze-scenes` | Scene detection + Highlight Windowing + mood/faces | `<dir_or_file> [--thumbs --threshold --max-scene-duration --target-window-duration --min-window-duration --stream]` | `ScenesCatalog` JSON or NDJSON stream |
+| `analyze-segment` | On-demand static + face analysis on custom range | `<source_path> [--start --end --samples --scene-id --thumbs]` | `SceneCut` JSON |
+| `direct` | AI montage direction (Gemini + fallback) | `--beats --scenes --prompt [--title --audio -o]` | `Timeline` JSON |
+| `render` | FFmpeg video stitch | `<timeline_file> --output [--codec --hwaccel --preset --resolution --fps --json]` | Streaming NDJSON progress & completion |
+| `export-project` | OTIO / FCPXML export | `<timeline_file> --output --format [--json]` | Export confirmation JSON |

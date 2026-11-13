@@ -3,18 +3,40 @@
   "title": "AMVMakerSchemas",
   "description": "Shared JSON schemas for AMV Maker pipeline communication between Python engine and UI/TypeScript",
   "definitions": {
+    "AudioCueNote": {
+      "type": "object",
+      "required": ["id", "timestamp_ms"],
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier for the audio cue note" },
+        "timestamp_ms": { "type": "integer", "description": "Millisecond-accurate timestamp on the audio track" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Manual director tags for this audio moment"
+        },
+        "note": { "type": "string", "description": "Freeform creative instruction for the AI Director at this timestamp" }
+      }
+    },
     "EnergySegment": {
       "type": "object",
       "required": ["start", "end", "level", "label"],
       "properties": {
         "start": { "type": "number", "description": "Start timestamp in seconds" },
         "end": { "type": "number", "description": "End timestamp in seconds" },
-        "level": { 
-          "type": "string", 
+        "level": {
+          "type": "string",
           "enum": ["low", "medium", "high", "drop", "outro", "intro", "build"],
-          "description": "Dynamic energy level" 
+          "description": "Dynamic energy level"
         },
-        "label": { "type": "string", "description": "Musical segment descriptor (e.g. intro, verse_1, chorus_1)" }
+        "label": { "type": "string", "description": "Musical segment descriptor (e.g. intro, verse_1, chorus_1)" },
+        "vocal_energy": { "type": "number", "description": "Harmonic 300-3400Hz vocal band energy (0.0 to 1.0)" },
+        "percussive_energy": { "type": "number", "description": "Percussive/drum transient energy (0.0 to 1.0)" },
+        "bass_energy": { "type": "number", "description": "Low-end 20-250Hz bass energy (0.0 to 1.0)" },
+        "spectral_brightness": { "type": "number", "description": "Normalized spectral centroid brightness (0.0 to 1.0)" },
+        "audio_mood": {
+          "type": "string",
+          "description": "Classified segment audio mood (e.g. vocal_intimate, vocal_soaring, instrumental_calm, rhythmic_groove, high_energy_drop, dramatic_build)"
+        }
       }
     },
     "BeatsData": {
@@ -38,6 +60,11 @@
           "type": "array",
           "items": { "$ref": "#/definitions/EnergySegment" },
           "description": "Calculated energy segments across the track"
+        },
+        "audio_notes": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/AudioCueNote" },
+          "description": "User-authored millisecond-level cue tags and director notes on the soundtrack"
         }
       }
     },
@@ -46,7 +73,7 @@
       "required": ["scene_id", "source_file", "start_time", "end_time", "duration"],
       "properties": {
         "scene_id": { "type": "integer", "description": "Sequential scene index" },
-        "source_file": { "type": "string", "description": "Absolute path to source video file" },
+        "source_file": { "type": "string", "description": "Absolute path to source video or image file" },
         "start_time": { "type": "number", "description": "In point in seconds" },
         "end_time": { "type": "number", "description": "Out point in seconds" },
         "duration": { "type": "number", "description": "Duration in seconds (0.0 for static images)" },
@@ -54,17 +81,34 @@
         "is_still_image": { "type": "boolean", "description": "True if source is a static artwork or photo" },
         "keyframe_path": { "type": "string", "description": "Relative/absolute path to thumbnail keyframe image" },
         "sharpness_score": { "type": "number", "description": "Laplacian variance measure of frame sharpness" },
-        "motion_score": { "type": "number", "description": "Estimated motion/activity score" },
+        "motion_score": { "type": "number", "description": "Estimated motion/activity score (0-100)" },
         "brightness_score": { "type": "number", "description": "Average frame brightness (0-255)" },
+        "contrast_score": { "type": "number", "description": "Luminance contrast score (0-100)" },
+        "saturation_score": { "type": "number", "description": "HSV color saturation score (0-100)" },
+        "fluidity_score": { "type": "number", "description": "Optical-flow motion smoothness/fluidity (0-100, video only)" },
+        "dramatism_score": { "type": "number", "description": "Visual dramatism intensity combining contrast, range, and motion (0-100)" },
+        "color_mood": { "type": "string", "description": "Color palette mood (warm_golden, cool_cinematic, vibrant_festive, moody_dark, neutral_balanced)" },
+        "visual_mood": { "type": "string", "description": "Overall visual mood (joyful_bright, energetic_action, dramatic_intense, serene_scenic, melancholic_muted, warm_intimate)" },
         "has_faces": { "type": "boolean", "description": "True if one or more faces detected" },
         "face_count": { "type": "integer", "description": "Number of faces detected in keyframe" },
-        "dominant_expression": { "type": "string", "description": "Detected facial expression" },
+        "dominant_expression": { "type": "string", "description": "Detected facial expression (laughing / ecstatic, joyful / smiling, surprised / amazed, angry / intense, sad / melancholic, worried / tense, focused / determined, calm / neutral)" },
         "smile_score": { "type": "number", "description": "Smile confidence score (0.0 to 1.0)" },
+        "emotion_scores": {
+          "type": "object",
+          "additionalProperties": { "type": "number" },
+          "description": "Blendshape emotion confidence map (joy, surprise, anger, sadness, worry, neutral)"
+        },
         "subject_prominence": {
           "type": "string",
           "enum": ["close_up", "medium_shot", "wide_shot", "scenic"],
           "description": "Subject framing prominence"
-        }
+        },
+        "user_tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Manual user tags for AI Director guidance"
+        },
+        "user_note": { "type": "string", "description": "Manual user creative note for this clip or image" }
       }
     },
     "ScenesCatalog": {
@@ -74,7 +118,7 @@
         "source_files": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "List of source video files analyzed"
+          "description": "List of source video/image files analyzed"
         },
         "total_scenes": { "type": "integer", "description": "Total number of scenes detected" },
         "scenes": {
@@ -88,18 +132,26 @@
       "type": "object",
       "required": ["source_file", "source_in", "source_out", "timeline_start", "timeline_end", "transition"],
       "properties": {
-        "source_file": { "type": "string", "description": "Path to source video file" },
+        "source_file": { "type": "string", "description": "Path to source video or image file" },
         "source_in": { "type": "number", "description": "Source clip in-point timestamp in seconds" },
         "source_out": { "type": "number", "description": "Source clip out-point timestamp in seconds" },
         "timeline_start": { "type": "number", "description": "Placement start time on AMV timeline in seconds" },
         "timeline_end": { "type": "number", "description": "Placement end time on AMV timeline in seconds" },
-        "transition": { 
-          "type": "string", 
+        "transition": {
+          "type": "string",
           "enum": ["cut", "crossfade", "flash_white", "zoom_in", "whip_pan"],
-          "description": "Transition effect into this cut" 
+          "description": "Transition effect into this cut"
         },
         "pacing_beat_interval": { "type": "integer", "description": "Cuts synchronized every N beats" },
-        "track_index": { "type": "integer", "description": "Video track index (0 = V1, 1 = V2, etc.)" }
+        "scene_id": { "type": "integer", "description": "Optional originating SceneCut ID" },
+        "keyframe_path": { "type": "string", "description": "Optional thumbnail path for timeline UI preview" },
+        "track_index": { "type": "integer", "description": "Video track index (0 = V1, 1 = V2, etc.)" },
+        "user_tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Manual user tags on this timeline cut"
+        },
+        "user_note": { "type": "string", "description": "Manual user note on this timeline cut" }
       }
     },
     "Timeline": {
