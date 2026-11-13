@@ -256,7 +256,7 @@ def direct_amv(
     """
     load_dotenv_if_present()
     key = api_key or os.environ.get("GEMINI_API_KEY")
-    resolved_model = model or os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    resolved_model = model or os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
     if force_fallback or not key:
         logger.info("GEMINI_API_KEY not configured or offline mode requested. Using deterministic director.")
