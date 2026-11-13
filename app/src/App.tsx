@@ -31,6 +31,7 @@ import {
 import { engineClient, isTauriEnvironment } from "./services/engineClient";
 import { audioEngine } from "./services/audioEngine";
 import { DropZones } from "./components/DropZones";
+import { FrameBeatLogo } from "./components/FrameBeatLogo";
 import { MediaLibraryTree } from "./components/MediaLibraryTree";
 import { HighlightsList, type HighlightAnalysisSettings } from "./components/HighlightsList";
 import { ClipHighlightsModal } from "./components/ClipHighlightsModal";
@@ -575,12 +576,10 @@ export default function App() {
       {/* Top Application Bar */}
       <header className="h-14 border-b border-slate-800 px-6 flex items-center justify-between bg-slate-900/80 backdrop-blur z-20">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-rose-500 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/20">
-            AMV
-          </div>
+          <FrameBeatLogo className="w-8 h-8" />
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-bold text-base tracking-tight text-slate-100">AMV Maker</h1>
+              <h1 className="font-bold text-base tracking-tight text-slate-100">FrameBeat</h1>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">
                 v0.1.0 • Phase 1
               </span>

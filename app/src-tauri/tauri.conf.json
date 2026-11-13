@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AMV Maker",
+  "productName": "FrameBeat",
   "version": "0.1.0",
   "identifier": "com.vmatrix.amvmaker",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "AMV Maker",
+        "title": "FrameBeat",
         "width": 1400,
         "height": 900,
         "minWidth": 1280,

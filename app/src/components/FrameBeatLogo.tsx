@@ -1,0 +1,43 @@
+import React from "react";
+
+interface FrameBeatLogoProps {
+  className?: string;
+}
+
+/**
+ * Custom vector brand mark for FrameBeat combining viewfinder frame brackets
+ * with an audio beat waveform inside an indigo-to-rose gradient badge.
+ */
+export const FrameBeatLogo: React.FC<FrameBeatLogoProps> = ({ className = "w-8 h-8" }) => {
+  return (
+    <svg
+      viewBox="0 0 32 32"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={`${className} shrink-0 shadow-lg shadow-indigo-500/20 rounded-lg`}
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id="framebeat-logo-grad" x1="2" y1="30" x2="30" y2="2" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#4f46e5" />
+          <stop offset="55%" stopColor="#7c3aed" />
+          <stop offset="100%" stopColor="#f43f5e" />
+        </linearGradient>
+      </defs>
+      <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#framebeat-logo-grad)" />
+      <rect x="1.5" y="1.5" width="29" height="29" rx="7.5" stroke="#ffffff" strokeOpacity="0.18" />
+
+      {/* Viewfinder / Frame corner brackets */}
+      <path d="M6.5 10.5V8.5C6.5 7.39543 7.39543 6.5 8.5 6.5H10.5" stroke="#ffffff" strokeOpacity="0.85" strokeWidth="1.75" strokeLinecap="round" />
+      <path d="M21.5 6.5H23.5C24.6046 6.5 25.5 7.39543 25.5 8.5V10.5" stroke="#ffffff" strokeOpacity="0.85" strokeWidth="1.75" strokeLinecap="round" />
+      <path d="M6.5 21.5V23.5C6.5 24.6046 7.39543 25.5 8.5 25.5H10.5" stroke="#ffffff" strokeOpacity="0.85" strokeWidth="1.75" strokeLinecap="round" />
+      <path d="M21.5 25.5H23.5C24.6046 25.5 25.5 24.6046 25.5 23.5V21.5" stroke="#ffffff" strokeOpacity="0.85" strokeWidth="1.75" strokeLinecap="round" />
+
+      {/* Beat pulse bars */}
+      <rect x="9.5" y="13" width="2.2" height="6" rx="1.1" fill="#ffffff" fillOpacity="0.9" />
+      <rect x="13.25" y="9.5" width="2.2" height="13" rx="1.1" fill="#ffffff" />
+      <rect x="17" y="11" width="2.2" height="10" rx="1.1" fill="#ffffff" />
+      <rect x="20.75" y="14" width="2.2" height="4" rx="1.1" fill="#ffffff" fillOpacity="0.9" />
+    </svg>
+  );
+};
