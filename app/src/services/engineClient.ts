@@ -524,7 +524,54 @@ class EngineClient {
     onProgress?: (progress: RenderProgress) => void
   ): Promise<RenderResult> {
     if (this.isMockMode) {
-      // Simulate real-time progress events
+      try {
+        const res = await fetch("/api/render", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timeline, outputPath, options }),
+        });
+        if (res.ok && res.body) {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          let completedResult: RenderResult | null = null;
+
+          const handleLine = (line: string) => {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("{")) return;
+            const data = JSON.parse(trimmed) as RenderProgress | RenderResult | { type: "error"; error?: string };
+            if (data.type === "progress") {
+              onProgress?.(data as RenderProgress);
+            } else if (data.type === "completed") {
+              completedResult = data as RenderResult;
+            } else if (data.type === "error") {
+              throw new Error((data as { error?: string }).error || "Render failed");
+            }
+          };
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let nl = buffer.indexOf("\n");
+            while (nl >= 0) {
+              const line = buffer.slice(0, nl);
+              buffer = buffer.slice(nl + 1);
+              handleLine(line);
+              nl = buffer.indexOf("\n");
+            }
+          }
+          if (buffer.trim()) handleLine(buffer);
+          if (completedResult) return completedResult;
+        }
+      } catch (err) {
+        if (err instanceof Error && !err.message.includes("Failed to fetch")) {
+          throw err;
+        }
+        console.warn("Dev server render unavailable, falling back to simulation:", err);
+      }
+
+      // Fallback simulation if dev server API is unreachable
       const totalSteps = 10;
       const totalTime = timeline.cuts.length > 0 ? timeline.cuts[timeline.cuts.length - 1].timeline_end : 16.0;
       for (let i = 1; i <= totalSteps; i++) {
@@ -596,11 +643,23 @@ class EngineClient {
    * Export timeline cuts to OpenTimelineIO (.otio) or Final Cut Pro XML (.fcpxml).
    */
   async exportProject(
-    _timeline: Timeline,
+    timeline: Timeline,
     outputPath: string,
     format: "otio" | "fcpxml" | "auto" = "auto"
   ): Promise<ExportResult> {
     if (this.isMockMode) {
+      try {
+        const res = await fetch("/api/export-project", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timeline, outputPath, format }),
+        });
+        if (res.ok) {
+          return (await res.json()) as ExportResult;
+        }
+      } catch (err) {
+        console.warn("Dev server export-project unavailable, falling back:", err);
+      }
       await new Promise((r) => setTimeout(r, 120));
       const detected = outputPath.endsWith(".fcpxml") || format === "fcpxml" ? "fcpxml" : "otio";
       return {

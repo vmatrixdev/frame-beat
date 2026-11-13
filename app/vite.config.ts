@@ -337,6 +337,156 @@ function amvEngineVitePlugin(): Plugin {
         });
       });
 
+      // API to render timeline to MP4 via FFmpeg & Python CLI (streams NDJSON progress)
+      server.middlewares.use("/api/render", (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          return res.end();
+        }
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk: Buffer) => chunks.push(chunk));
+        req.on("end", async () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+            const { timeline, outputPath, options } = body;
+            if (!timeline || !Array.isArray(timeline.cuts) || timeline.cuts.length === 0) {
+              res.statusCode = 400;
+              return res.end(JSON.stringify({ error: "timeline with cuts is required" }));
+            }
+
+            const projectRoot = path.resolve(__dirname, "..");
+            const cacheDir = path.join(projectRoot, "cache");
+            fs.mkdirSync(cacheDir, { recursive: true });
+
+            // Resolve target_audio if it's a relative/filename from browser upload
+            const resolvedTimeline = { ...timeline };
+            const rawAudio = String(resolvedTimeline.target_audio || "");
+            if (rawAudio && !fs.existsSync(rawAudio)) {
+              const candidates = [
+                path.join(projectRoot, rawAudio),
+                path.join(os.homedir(), "Downloads", path.basename(rawAudio)),
+                path.join(projectRoot, "export", "browser_upload_audio.mp3"),
+              ];
+              const found = candidates.find((c) => fs.existsSync(c));
+              if (found) resolvedTimeline.target_audio = found;
+            }
+
+            const timelinePath = path.join(cacheDir, "render_timeline.json");
+            fs.writeFileSync(timelinePath, JSON.stringify(resolvedTimeline, null, 2));
+
+            let outFile = String(outputPath || "export/amv_final.mp4");
+            if (outFile.startsWith("~")) {
+              outFile = path.join(os.homedir(), outFile.slice(1));
+            } else if (!path.isAbsolute(outFile)) {
+              outFile = path.resolve(projectRoot, outFile);
+            }
+            fs.mkdirSync(path.dirname(outFile), { recursive: true });
+
+            const pythonBin = path.join(projectRoot, "engine", ".venv", "bin", "python");
+            const scriptPath = path.join(projectRoot, "engine", "main.py");
+            const args = [scriptPath, "render", timelinePath, "--output", outFile, "--json"];
+            if (options?.codec) args.push("--codec", String(options.codec));
+            if (options?.hwaccel !== undefined) args.push(options.hwaccel ? "--hwaccel" : "--no-hwaccel");
+            if (options?.preset) args.push("--preset", String(options.preset));
+            if (options?.resolution) args.push("--resolution", String(options.resolution));
+            if (options?.fps) args.push("--fps", String(options.fps));
+
+            const proc = spawn(pythonBin, args, {
+              cwd: projectRoot,
+              env: { ...process.env, PYTHONPATH: projectRoot, PYTHONUNBUFFERED: "1" },
+            });
+
+            res.setHeader("Content-Type", "application/x-ndjson");
+            res.setHeader("Cache-Control", "no-cache");
+            let stderr = "";
+            proc.stdout.on("data", (d: Buffer) => res.write(d));
+            proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+            proc.on("close", (code: number) => {
+              if (code !== 0 && !res.writableEnded) {
+                res.write(JSON.stringify({ type: "error", error: stderr || "Render failed" }) + "\n");
+              }
+              res.end();
+            });
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: msg }));
+          }
+        });
+      });
+
+      // API to export timeline to OTIO / FCPXML via Python CLI
+      server.middlewares.use("/api/export-project", (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          return res.end();
+        }
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk: Buffer) => chunks.push(chunk));
+        req.on("end", async () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+            const { timeline, outputPath, format } = body;
+            if (!timeline) {
+              res.statusCode = 400;
+              return res.end(JSON.stringify({ error: "timeline is required" }));
+            }
+
+            const projectRoot = path.resolve(__dirname, "..");
+            const cacheDir = path.join(projectRoot, "cache");
+            fs.mkdirSync(cacheDir, { recursive: true });
+            const timelinePath = path.join(cacheDir, "export_timeline.json");
+            fs.writeFileSync(timelinePath, JSON.stringify(timeline, null, 2));
+
+            let outFile = String(outputPath || "export/amv_project.otio");
+            if (outFile.startsWith("~")) {
+              outFile = path.join(os.homedir(), outFile.slice(1));
+            } else if (!path.isAbsolute(outFile)) {
+              outFile = path.resolve(projectRoot, outFile);
+            }
+            fs.mkdirSync(path.dirname(outFile), { recursive: true });
+
+            const pythonBin = path.join(projectRoot, "engine", ".venv", "bin", "python");
+            const scriptPath = path.join(projectRoot, "engine", "main.py");
+            const args = [
+              scriptPath,
+              "export-project",
+              timelinePath,
+              "--output",
+              outFile,
+              "--format",
+              String(format || "auto"),
+              "--json",
+            ];
+
+            const proc = spawn(pythonBin, args, {
+              cwd: projectRoot,
+              env: { ...process.env, PYTHONPATH: projectRoot },
+            });
+
+            let stdout = "";
+            let stderr = "";
+            proc.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+            proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+            proc.on("close", (code: number) => {
+              const jsonStart = stdout.indexOf("{");
+              const cleanJson = jsonStart >= 0 ? stdout.slice(jsonStart) : "";
+              if (code === 0 && cleanJson.trim()) {
+                res.setHeader("Content-Type", "application/json");
+                res.end(cleanJson);
+              } else {
+                res.statusCode = 500;
+                res.end(JSON.stringify({ error: stderr || "Project export failed" }));
+              }
+            });
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: msg }));
+          }
+        });
+      });
+
       // Stream local media files (MP4/WebM/MOV/JPG/PNG) with Range support for HTML5 video
       server.middlewares.use("/api/media-stream", (req, res) => {
         try {

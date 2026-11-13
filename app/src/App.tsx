@@ -64,7 +64,26 @@ export default function App() {
   const [isDirecting, setIsDirecting] = useState<boolean>(false);
   const [beats, setBeats] = useState<BeatsData | null>(null);
   const [scenes, setScenes] = useState<ScenesCatalog | null>(null);
-  const [timeline, setTimeline] = useState<Timeline | null>(null);
+  const [timeline, setTimeline] = useState<Timeline | null>(() => {
+    try {
+      const saved = localStorage.getItem("amv_maker_saved_timeline");
+      return saved ? (JSON.parse(saved) as Timeline) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (timeline) {
+        localStorage.setItem("amv_maker_saved_timeline", JSON.stringify(timeline));
+      } else {
+        localStorage.removeItem("amv_maker_saved_timeline");
+      }
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [timeline]);
   const [previewScene, setPreviewScene] = useState<SceneCut | null>(null);
   const [sidebarTab, setSidebarTab] = useState<"library" | "highlights">("library");
   const [highlightSettings, setHighlightSettings] = useState<HighlightAnalysisSettings>({
