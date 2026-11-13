@@ -6,6 +6,7 @@ import {
   Film,
   FolderOpen,
   Image as ImageIcon,
+  Loader2,
   MoreVertical,
   Music,
   Play,
@@ -27,6 +28,7 @@ export interface MediaLibraryTreeProps {
   onAddToTimeline?: (scene: SceneCut) => void;
   onReanalyzeScene?: (scene: SceneCut, sampleFrames: number) => void;
   onOpenClipHighlights?: (sourceFile: string) => void;
+  analyzingFiles?: string[];
 }
 
 interface RawVideoGroup {
@@ -47,7 +49,9 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
   onAddToTimeline,
   onReanalyzeScene,
   onOpenClipHighlights,
+  analyzingFiles = [],
 }) => {
+  const analyzingSet = useMemo(() => new Set(analyzingFiles), [analyzingFiles]);
   const [audioExpanded, setAudioExpanded] = useState(true);
   const [videosExpanded, setVideosExpanded] = useState(true);
   const [photosExpanded, setPhotosExpanded] = useState(true);
@@ -75,15 +79,43 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
     const scenes = catalog?.scenes || [];
     const videosMap = new Map<string, SceneCut[]>();
     const photos: SceneCut[] = [];
+    const seenPhotoFiles = new Set<string>();
 
     for (const s of scenes) {
       const isImg = s.is_still_image || s.media_type === "image";
       if (isImg) {
         photos.push(s);
+        seenPhotoFiles.add(s.source_file);
       } else {
         const list = videosMap.get(s.source_file) || [];
         list.push(s);
         videosMap.set(s.source_file, list);
+      }
+    }
+
+    for (const srcFile of catalog?.source_files || []) {
+      const lower = srcFile.toLowerCase();
+      const isImg =
+        lower.endsWith(".jpg") ||
+        lower.endsWith(".jpeg") ||
+        lower.endsWith(".png") ||
+        lower.endsWith(".webp") ||
+        lower.endsWith(".bmp");
+      if (isImg) {
+        if (!seenPhotoFiles.has(srcFile)) {
+          photos.push({
+            scene_id: -1,
+            source_file: srcFile,
+            start_time: 0,
+            end_time: 0,
+            duration: 0,
+            media_type: "image",
+            is_still_image: true,
+          });
+          seenPhotoFiles.add(srcFile);
+        }
+      } else if (!videosMap.has(srcFile)) {
+        videosMap.set(srcFile, []);
       }
     }
 
@@ -275,9 +307,18 @@ export const MediaLibraryTree: React.FC<MediaLibraryTreeProps> = ({
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-mono text-[11px]">{group.filename}</div>
                           <div className="text-[9px] font-mono text-slate-500 flex items-center gap-1.5">
-                            <span>{group.totalDuration.toFixed(1)}s</span>
-                            <span>•</span>
-                            <span>{group.cuts.length} {group.cuts.length === 1 ? "cut" : "cuts"}</span>
+                            {analyzingSet.has(group.sourceFile) ? (
+                              <span className="inline-flex items-center gap-1 text-amber-400">
+                                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                analyzing...
+                              </span>
+                            ) : (
+                              <>
+                                <span>{group.totalDuration.toFixed(1)}s</span>
+                                <span>•</span>
+                                <span>{group.cuts.length} {group.cuts.length === 1 ? "cut" : "cuts"}</span>
+                              </>
+                            )}
                           </div>
                         </div>
                         {group.hasFaces && <Smile className="w-3 h-3 text-rose-400 shrink-0" />}

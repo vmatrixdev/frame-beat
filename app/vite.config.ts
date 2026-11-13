@@ -93,10 +93,32 @@ function amvEngineVitePlugin(): Plugin {
               cliArgs.push("--min-window-duration", String(body.minWindowDuration));
             }
 
+            const isStream = Boolean(body.stream);
+            if (isStream) {
+              cliArgs.push("--stream");
+            }
+
             const proc = spawn(pythonBin, cliArgs, {
               cwd: projectRoot,
-              env: { ...process.env, PYTHONPATH: projectRoot },
+              env: { ...process.env, PYTHONPATH: projectRoot, PYTHONUNBUFFERED: "1" },
             });
+
+            if (isStream) {
+              res.setHeader("Content-Type", "application/x-ndjson");
+              res.setHeader("Cache-Control", "no-cache");
+              let stderr = "";
+              proc.stdout.on("data", (d: Buffer) => {
+                res.write(d);
+              });
+              proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+              proc.on("close", (code: number) => {
+                if (code !== 0 && !res.writableEnded) {
+                  res.write(JSON.stringify({ event: "error", error: stderr || "Scene analysis failed" }) + "\n");
+                }
+                res.end();
+              });
+              return;
+            }
 
             let stdout = "";
             let stderr = "";

@@ -60,6 +60,7 @@ export default function App() {
   // Analysis & Engine state
   const [isAnalyzingAudio, setIsAnalyzingAudio] = useState<boolean>(false);
   const [isAnalyzingScenes, setIsAnalyzingScenes] = useState<boolean>(false);
+  const [analyzingFiles, setAnalyzingFiles] = useState<string[]>([]);
   const [isDirecting, setIsDirecting] = useState<boolean>(false);
   const [beats, setBeats] = useState<BeatsData | null>(null);
   const [scenes, setScenes] = useState<ScenesCatalog | null>(null);
@@ -174,12 +175,21 @@ export default function App() {
     }
   };
 
-  // Handle Video Selection & Scene Detection (merges into existing library instead of replacing)
+  // Handle Video Selection & Scene Detection (merges into existing library & streams progress)
   const handleSelectVideoDir = async (dir: string, files?: File[]) => {
     setVideoDir(dir);
     setIsAnalyzingScenes(true);
     try {
-      const scenesResult = await engineClient.analyzeScenes(dir, undefined, files, highlightSettings);
+      const scenesResult = await engineClient.analyzeScenes(
+        dir,
+        undefined,
+        files,
+        highlightSettings,
+        (partialCatalog, pendingFiles) => {
+          setScenes((prev) => mergeScenesCatalog(prev, partialCatalog));
+          setAnalyzingFiles(pendingFiles);
+        }
+      );
       setScenes((prev) => mergeScenesCatalog(prev, scenesResult));
       if (scenesResult.scenes.length > 0) {
         setPreviewScene((prev) => prev ?? scenesResult.scenes[0]);
@@ -188,6 +198,7 @@ export default function App() {
       console.error("Scene analysis failed:", err);
     } finally {
       setIsAnalyzingScenes(false);
+      setAnalyzingFiles([]);
     }
   };
 
@@ -692,6 +703,7 @@ export default function App() {
                 onAddToTimeline={handleAddSceneToTimeline}
                 onReanalyzeScene={handleReanalyzeScene}
                 onOpenClipHighlights={(sourceFile) => setClipHighlightsTarget(sourceFile)}
+                analyzingFiles={analyzingFiles}
               />
 
               {/* Section 2: LLM Director Directive */}

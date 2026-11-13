@@ -199,6 +199,109 @@ class EngineClient {
     return this.normalizeCatalogThumbnails(catalog);
   }
 
+  private async runAnalyzeScenesRequest(
+    dirPath: string,
+    thumbsDir: string | undefined,
+    options?: {
+      detectorThreshold?: number;
+      maxSceneDuration?: number;
+      targetWindowDuration?: number;
+      minWindowDuration?: number;
+    },
+    onProgress?: (partialCatalog: ScenesCatalog, pendingFiles: string[]) => void
+  ): Promise<ScenesCatalog | null> {
+    const useStream = Boolean(onProgress);
+    const res = await fetch("/api/analyze-scenes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dirPath,
+        thumbsDir: thumbsDir || "cache/thumbnails",
+        stream: useStream,
+        ...options,
+      }),
+    });
+    if (!res.ok) return null;
+
+    if (!useStream || !res.body) {
+      const data = await res.json();
+      return this.normalizeCatalogThumbnails(data as ScenesCatalog);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let sourceFiles: string[] = [];
+    let pending = new Set<string>();
+    let accumulatedScenes: SceneCut[] = [];
+    let finalCatalog: ScenesCatalog | null = null;
+
+    const processLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("{")) return;
+      const evt = JSON.parse(trimmed) as {
+        event: string;
+        source_files?: string[];
+        source_file?: string;
+        scenes?: SceneCut[];
+        catalog?: ScenesCatalog;
+        error?: string;
+      };
+      if (evt.event === "discovered" && evt.source_files) {
+        sourceFiles = evt.source_files;
+        pending = new Set(evt.source_files);
+        onProgress?.(
+          this.normalizeCatalogThumbnails({
+            source_files: sourceFiles,
+            total_scenes: 0,
+            scenes: [],
+          }),
+          Array.from(pending)
+        );
+      } else if (evt.event === "file_done" && evt.source_file) {
+        pending.delete(evt.source_file);
+        const newScenes = evt.scenes || [];
+        accumulatedScenes = [...accumulatedScenes, ...newScenes];
+        const partial = this.normalizeCatalogThumbnails({
+          source_files: sourceFiles.length ? sourceFiles : [evt.source_file],
+          total_scenes: accumulatedScenes.length,
+          scenes: accumulatedScenes,
+        });
+        onProgress?.(partial, Array.from(pending));
+      } else if (evt.event === "complete" && evt.catalog) {
+        finalCatalog = this.normalizeCatalogThumbnails(evt.catalog);
+        onProgress?.(finalCatalog, []);
+      } else if (evt.event === "error") {
+        throw new Error(evt.error || "Streaming scene analysis failed");
+      }
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let nlIdx = buffer.indexOf("\n");
+      while (nlIdx >= 0) {
+        const line = buffer.slice(0, nlIdx);
+        buffer = buffer.slice(nlIdx + 1);
+        processLine(line);
+        nlIdx = buffer.indexOf("\n");
+      }
+    }
+    if (buffer.trim()) {
+      processLine(buffer);
+    }
+
+    return (
+      finalCatalog ||
+      this.normalizeCatalogThumbnails({
+        source_files: sourceFiles,
+        total_scenes: accumulatedScenes.length,
+        scenes: accumulatedScenes,
+      })
+    );
+  }
+
   /**
    * Run scene detection & keyframe extraction on source videos directory or single file.
    */
@@ -211,7 +314,8 @@ class EngineClient {
       maxSceneDuration?: number;
       targetWindowDuration?: number;
       minWindowDuration?: number;
-    }
+    },
+    onProgress?: (partialCatalog: ScenesCatalog, pendingFiles: string[]) => void
   ): Promise<ScenesCatalog> {
     if (this.isMockMode) {
       // 1. If browser files were dropped/selected, upload them into cache/library/<batchId> and run real Python analysis
@@ -234,19 +338,13 @@ class EngineClient {
             if (upData.batchDir) batchDir = upData.batchDir;
           }
           if (batchDir) {
-            const res = await fetch("/api/analyze-scenes", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                dirPath: batchDir,
-                thumbsDir: thumbsDir || "cache/thumbnails",
-                ...options,
-              }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              return this.normalizeCatalogThumbnails(data as ScenesCatalog);
-            }
+            const result = await this.runAnalyzeScenesRequest(
+              batchDir,
+              thumbsDir,
+              options,
+              onProgress
+            );
+            if (result) return result;
           }
         } catch (e) {
           console.warn("Dev server upload & scene analysis failed, using fallback:", e);
@@ -257,19 +355,13 @@ class EngineClient {
       const isDirPath = videoDir.includes("/") || videoDir.startsWith("~") || videoDir.includes("\\");
       if (isDirPath) {
         try {
-          const res = await fetch("/api/analyze-scenes", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              dirPath: videoDir,
-              thumbsDir: thumbsDir || "cache/thumbnails",
-              ...options,
-            }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            return this.normalizeCatalogThumbnails(data as ScenesCatalog);
-          }
+          const result = await this.runAnalyzeScenesRequest(
+            videoDir,
+            thumbsDir,
+            options,
+            onProgress
+          );
+          if (result) return result;
         } catch (e) {
           console.warn("Dev server scene analysis failed, using fallback:", e);
         }

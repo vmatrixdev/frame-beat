@@ -19,6 +19,7 @@ from rich.console import Console
 from engine.audio_analyzer import analyze_audio
 from engine.visual_analyzer import (
     IMAGE_EXTENSIONS,
+    VIDEO_EXTENSIONS,
     analyze_directory,
     analyze_image,
     analyze_single_segment,
@@ -64,9 +65,63 @@ def analyze_scenes(
     max_scene_duration: float = typer.Option(5.5, "--max-scene-duration", help="Subdivide scenes longer than this (seconds)"),
     target_window_duration: float = typer.Option(3.5, "--target-window-duration", help="Target highlight window duration (seconds)"),
     min_window_duration: float = typer.Option(2.0, "--min-window-duration", help="Minimum highlight window duration (seconds)"),
+    stream: bool = typer.Option(False, "--stream", help="Emit progressive NDJSON updates per file"),
 ):
     """Detect visual scene cuts and extract keyframes and metrics."""
     try:
+        if stream:
+            if not video_dir.exists():
+                raise FileNotFoundError(f"Media path not found: {video_dir}")
+            media_extensions = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS
+            media_files = (
+                [video_dir]
+                if video_dir.is_file()
+                else sorted(f for f in video_dir.iterdir() if f.suffix.lower() in media_extensions)
+            )
+            resolved_files = [str(f.resolve()) for f in media_files]
+            sys.stdout.write(json.dumps({"event": "discovered", "source_files": resolved_files}) + "\n")
+            sys.stdout.flush()
+
+            all_scenes = []
+            global_scene_id = 0
+            for m_file in media_files:
+                if m_file.suffix.lower() in IMAGE_EXTENSIONS:
+                    cut = analyze_image(m_file, output_thumbnail_dir=thumbnail_dir)
+                    cuts = [cut]
+                else:
+                    cuts = analyze_video(
+                        m_file,
+                        output_thumbnail_dir=thumbnail_dir,
+                        detector_threshold=detector_threshold,
+                        max_scene_duration=max_scene_duration,
+                        target_window_duration=target_window_duration,
+                        min_window_duration=min_window_duration,
+                    )
+                for c in cuts:
+                    c.scene_id = global_scene_id
+                    global_scene_id += 1
+                    all_scenes.append(c)
+                sys.stdout.write(
+                    json.dumps(
+                        {
+                            "event": "file_done",
+                            "source_file": str(m_file.resolve()),
+                            "scenes": [c.model_dump() for c in cuts],
+                        }
+                    )
+                    + "\n"
+                )
+                sys.stdout.flush()
+
+            catalog = ScenesCatalog(
+                source_files=resolved_files,
+                total_scenes=len(all_scenes),
+                scenes=all_scenes,
+            )
+            sys.stdout.write(json.dumps({"event": "complete", "catalog": catalog.model_dump()}) + "\n")
+            sys.stdout.flush()
+            return
+
         if video_dir.is_file():
             if video_dir.suffix.lower() in IMAGE_EXTENSIONS:
                 cut = analyze_image(video_dir, output_thumbnail_dir=thumbnail_dir)
