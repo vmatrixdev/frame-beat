@@ -11,8 +11,10 @@ import {
   Plus,
   Volume2,
   VolumeX,
+  Tag,
 } from "lucide-react";
 import type {
+  AudioCueNote,
   AudioTrackItem,
   BeatsData,
   ScenesCatalog,
@@ -38,6 +40,7 @@ import { ClipHighlightsModal } from "./components/ClipHighlightsModal";
 import { WaveformVisualizer } from "./components/WaveformVisualizer";
 import { TimelineTrack } from "./components/TimelineTrack";
 import { VideoPreview } from "./components/VideoPreview";
+import { AnnotationPanel } from "./components/AnnotationPanel";
 import { ExportModal, type ExportFormat } from "./components/ExportModal";
 
 const PROMPT_PRESETS = [
@@ -84,6 +87,45 @@ export default function App() {
       // Ignore storage quota errors
     }
   }, [timeline]);
+
+  const [showAnnotations, setShowAnnotations] = useState<boolean>(true);
+  const [savedAnnotations, setSavedAnnotations] = useState<{
+    audioNotes: AudioCueNote[];
+    sceneAnnotations: Record<string, { user_tags: string[]; user_note: string }>;
+  }>(() => {
+    try {
+      const raw = localStorage.getItem("amv_maker_saved_annotations");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          audioNotes: Array.isArray(parsed.audioNotes) ? parsed.audioNotes : [],
+          sceneAnnotations:
+            parsed.sceneAnnotations && typeof parsed.sceneAnnotations === "object"
+              ? parsed.sceneAnnotations
+              : {},
+        };
+      }
+    } catch {
+      // Ignore parse errors
+    }
+    return { audioNotes: [], sceneAnnotations: {} };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("amv_maker_saved_annotations", JSON.stringify(savedAnnotations));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [savedAnnotations]);
+
+  // Restore persisted audio cue notes whenever beats are loaded without audio_notes
+  useEffect(() => {
+    if (beats && (!beats.audio_notes || beats.audio_notes.length === 0) && savedAnnotations.audioNotes.length > 0) {
+      setBeats((prev) => (prev ? { ...prev, audio_notes: savedAnnotations.audioNotes } : prev));
+    }
+  }, [beats, savedAnnotations.audioNotes]);
+
   const [previewScene, setPreviewScene] = useState<SceneCut | null>(null);
   const [sidebarTab, setSidebarTab] = useState<"library" | "highlights">("library");
   const [highlightSettings, setHighlightSettings] = useState<HighlightAnalysisSettings>({
@@ -316,6 +358,82 @@ export default function App() {
     audioEngine.stop();
     setIsPlaying(false);
     setPreviewScene(scene);
+  };
+
+  // Manual Tags & Notes on SceneCut / TimelineCut / BeatsData
+  const handleUpdateSceneAnnotation = (
+    targetScene: SceneCut,
+    updates: { user_tags: string[]; user_note: string }
+  ) => {
+    setScenes((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        scenes: prev.scenes.map((s) =>
+          s.scene_id === targetScene.scene_id && s.source_file === targetScene.source_file
+            ? { ...s, user_tags: updates.user_tags, user_note: updates.user_note }
+            : s
+        ),
+      };
+    });
+    setPreviewScene((prev) =>
+      prev && prev.scene_id === targetScene.scene_id && prev.source_file === targetScene.source_file
+        ? { ...prev, user_tags: updates.user_tags, user_note: updates.user_note }
+        : prev
+    );
+    const key = `${targetScene.source_file}::${targetScene.scene_id}`;
+    setSavedAnnotations((prev) => ({
+      ...prev,
+      sceneAnnotations: {
+        ...prev.sceneAnnotations,
+        [key]: updates,
+      },
+    }));
+  };
+
+  const handleUpdateCutAnnotation = (
+    cutIndex: number,
+    updates: { user_tags: string[]; user_note: string }
+  ) => {
+    setTimeline((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        cuts: prev.cuts.map((c, idx) =>
+          idx === cutIndex
+            ? { ...c, user_tags: updates.user_tags, user_note: updates.user_note }
+            : c
+        ),
+      };
+    });
+  };
+
+  const updateAudioNotes = (updater: (notes: AudioCueNote[]) => AudioCueNote[]) => {
+    setBeats((prev) => {
+      if (!prev) return prev;
+      const nextNotes = updater(prev.audio_notes || []);
+      setSavedAnnotations((sa) => ({ ...sa, audioNotes: nextNotes }));
+      setAudioTracks((tracks) =>
+        tracks.map((t) =>
+          t.id === activeAudioTrackId && t.beats
+            ? { ...t, beats: { ...t.beats, audio_notes: nextNotes } }
+            : t
+        )
+      );
+      return { ...prev, audio_notes: nextNotes };
+    });
+  };
+
+  const handleAddAudioNote = (note: AudioCueNote) => {
+    updateAudioNotes((notes) => [...notes, note]);
+  };
+
+  const handleUpdateAudioNote = (updated: AudioCueNote) => {
+    updateAudioNotes((notes) => notes.map((n) => (n.id === updated.id ? updated : n)));
+  };
+
+  const handleDeleteAudioNote = (id: string) => {
+    updateAudioNotes((notes) => notes.filter((n) => n.id !== id));
   };
 
   // Manual Timeline Setup: Append a highlight, photo, or raw video onto the timeline
@@ -632,6 +750,19 @@ export default function App() {
         {/* Export Action Buttons */}
         <div className="flex items-center gap-2.5">
           <button
+            type="button"
+            onClick={() => setShowAnnotations((v) => !v)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+              showAnnotations
+                ? "bg-indigo-600/20 text-indigo-300 border-indigo-500/50"
+                : "bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700"
+            }`}
+            title="Toggle Director Annotations & Audio Cues Panel"
+          >
+            <Tag className="w-3.5 h-3.5" />
+            Tags & Cues
+          </button>
+          <button
             disabled={!timeline || timeline.cuts.length === 0}
             onClick={() => {
               setExportFormat("mp4");
@@ -803,8 +934,8 @@ export default function App() {
         {/* Center / Right Stage */}
         <section className="flex-1 flex flex-col overflow-hidden bg-slate-950/40">
           {/* Main Video Monitor Stage */}
-          <div className="flex-1 p-5 min-h-0 flex items-center justify-center">
-            <div className="w-full h-full max-w-5xl">
+          <div className="flex-1 p-5 min-h-0 flex items-center justify-center gap-4">
+            <div className="flex-1 h-full max-w-5xl min-w-0">
               <VideoPreview
                 timeline={timeline}
                 currentTime={currentTime}
@@ -825,6 +956,28 @@ export default function App() {
                 onChangeVolume={handleChangeVolume}
               />
             </div>
+
+            {showAnnotations && (
+              <div className="w-80 shrink-0 h-full overflow-y-auto">
+                <AnnotationPanel
+                  selectedScene={previewScene}
+                  selectedCut={
+                    selectedCutIndex !== null && timeline?.cuts[selectedCutIndex]
+                      ? timeline.cuts[selectedCutIndex]
+                      : null
+                  }
+                  selectedCutIndex={selectedCutIndex}
+                  beatsData={beats}
+                  currentTime={currentTime}
+                  onUpdateSceneAnnotation={handleUpdateSceneAnnotation}
+                  onUpdateCutAnnotation={handleUpdateCutAnnotation}
+                  onAddAudioNote={handleAddAudioNote}
+                  onUpdateAudioNote={handleUpdateAudioNote}
+                  onDeleteAudioNote={handleDeleteAudioNote}
+                  onSeekAudio={handleSeek}
+                />
+              </div>
+            )}
           </div>
 
           {/* Horizontal Splitter Handle for Timeline Height */}

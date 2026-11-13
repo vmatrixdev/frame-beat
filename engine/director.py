@@ -60,11 +60,22 @@ Core Directing Rules:
 3. Media Type Handling:
    - Still Images (media_type == "image" or is_still_image == True): Static photos have elastic duration! They can hold for multi-measure emotional portraits (e.g. 2.0s-4.0s) during quiet verses, or flash rhythmically on downbeats. Set source_in = 0.0 and source_out = (timeline_end - timeline_start).
    - Video Clips (media_type == "video"): Respect the clip's physical source bounds. Ensure source_out <= clip.end_time and (source_out - source_in) == (timeline_end - timeline_start).
-4. Visual Quality, Facial Emotions & Subject Prominence:
-   - Use sharpness, brightness, and local facial analysis fields (`has_faces`, `face_count`, `dominant_expression`, `smile_score`, `subject_prominence`) intelligently:
-   - For Weddings, Family, Birthdays & Milestones: Place `joyful / smiling` or `laughing / ecstatic` `close_up` portraits on emotional chorus peaks and downbeats. Use `scenic` or `wide_shot` establishing shots for intros and transitions.
+4. Visual Quality, Mood, Fluidity, Dramatism & Facial Emotions:
+   - Use sharpness, brightness, and local facial analysis fields (`has_faces`, `face_count`, `dominant_expression`, `smile_score`, `subject_prominence`, `emotion_scores`) intelligently:
+     - Expanded facial expressions include `laughing / ecstatic`, `joyful / smiling`, `surprised / amazed`, `angry / intense`, `sad / melancholic`, `worried / tense`, `focused / determined`, and `calm / neutral`, alongside `emotion_scores` (`joy`, `surprise`, `anger`, `sadness`, `worry`, `neutral`).
+     - For Weddings, Family, Birthdays & Milestones: Place `joyful / smiling` or `laughing / ecstatic` `close_up` portraits on emotional chorus peaks and downbeats. Use `scenic` or `wide_shot` establishing shots for intros and transitions.
+     - For Dramatic / Action / Narrative edits: Match `angry / intense`, `focused / determined`, `surprised / amazed`, `sad / melancholic`, or `worried / tense` expressions to corresponding lyrical/musical tension.
+   - Use visual mood & motion metrics (`contrast_score`, `saturation_score`, `fluidity_score`, `dramatism_score`, `color_mood`, `visual_mood`):
+     - High `fluidity_score` clips are ideal for smooth gliding transitions and `vocal_intimate` or `instrumental_calm` passages.
+     - High `dramatism_score` and `dramatic_intense` / `moody_dark` clips belong on `dramatic_build` and `high_energy_drop` moments.
    - Place the clearest, highest-sharpness scenes during musical climaxes.
-5. Continuity & Pacing:
+5. Musical Energy Curves, Vocal Presence & Millisecond Audio Cue Notes:
+   - Inspect each 2-second energy segment's `vocal_energy`, `percussive_energy`, `bass_energy`, `spectral_brightness`, and `audio_mood` (`vocal_intimate`, `vocal_soaring`, `instrumental_calm`, `rhythmic_groove`, `high_energy_drop`, `dramatic_build`).
+   - During `vocal_intimate` or `vocal_soaring` sections with high `vocal_energy`, hold emotional or expressive shots longer; during `high_energy_drop` or `rhythmic_groove` with high `bass_energy`/`percussive_energy`, cut tightly to the beat.
+   - Strictly respect `audio_cue_notes` / `music_profile.audio_notes`: each cue has `timestamp_ms` and `timestamp_sec`, `tags`, and `note`. Align key cuts, impacts, or transitions directly to those exact millisecond positions!
+6. User Tags & Clip Notes:
+   - Strictly respect `user_tags` and `user_note` on scenes in `available_scenes`: prioritize tagged/annotated clips and follow the user's specific placement or mood instructions for those clips.
+7. Continuity & Pacing:
    - The timeline must seamlessly cover from 0.0 seconds to music_profile.duration_sec with zero gaps and zero overlaps.
    - Avoid monotonous repetitions of the exact same shot consecutively.
 """
@@ -240,6 +251,57 @@ def direct_amv_deterministic(
 direct_timeline_deterministic = direct_amv_deterministic
 
 
+def build_director_input(
+    beats: BeatsData,
+    catalog: ScenesCatalog,
+    user_prompt: str,
+) -> dict:
+    """Builds the structured JSON payload sent to the LLM Director."""
+    return {
+        "user_creative_brief": user_prompt,
+        "music_profile": beats.model_dump(),
+        "audio_cue_notes": [
+            {
+                "id": note.id,
+                "timestamp_ms": note.timestamp_ms,
+                "timestamp_sec": round(note.timestamp_ms / 1000.0, 3),
+                "tags": note.tags,
+                "note": note.note,
+            }
+            for note in beats.audio_notes
+        ],
+        "available_scenes": [
+            {
+                "scene_id": s.scene_id,
+                "source_file": s.source_file,
+                "duration": s.duration,
+                "start_time": s.start_time,
+                "end_time": s.end_time,
+                "sharpness": s.sharpness_score,
+                "motion_score": s.motion_score,
+                "brightness": s.brightness_score,
+                "contrast_score": s.contrast_score,
+                "saturation_score": s.saturation_score,
+                "fluidity_score": s.fluidity_score,
+                "dramatism_score": s.dramatism_score,
+                "color_mood": s.color_mood,
+                "visual_mood": s.visual_mood,
+                "media_type": s.media_type,
+                "is_still_image": s.is_still_image,
+                "has_faces": s.has_faces,
+                "face_count": s.face_count,
+                "dominant_expression": s.dominant_expression,
+                "smile_score": s.smile_score,
+                "subject_prominence": s.subject_prominence,
+                "emotion_scores": s.emotion_scores,
+                "user_tags": s.user_tags,
+                "user_note": s.user_note,
+            }
+            for s in catalog.scenes
+        ],
+    }
+
+
 def direct_amv(
     beats: BeatsData,
     catalog: ScenesCatalog,
@@ -275,30 +337,7 @@ def direct_amv(
 
         client = genai.Client(api_key=key)
 
-        director_input = {
-            "user_creative_brief": user_prompt,
-            "music_profile": beats.model_dump(),
-            "available_scenes": [
-                {
-                    "scene_id": s.scene_id,
-                    "source_file": s.source_file,
-                    "duration": s.duration,
-                    "start_time": s.start_time,
-                    "end_time": s.end_time,
-                    "sharpness": s.sharpness_score,
-                    "motion_score": s.motion_score,
-                    "brightness": s.brightness_score,
-                    "media_type": s.media_type,
-                    "is_still_image": s.is_still_image,
-                    "has_faces": s.has_faces,
-                    "face_count": s.face_count,
-                    "dominant_expression": s.dominant_expression,
-                    "smile_score": s.smile_score,
-                    "subject_prominence": s.subject_prominence,
-                }
-                for s in catalog.scenes
-            ],
-        }
+        director_input = build_director_input(beats=beats, catalog=catalog, user_prompt=user_prompt)
 
         prompt = (
             f"Direct a music-synchronized video & photo montage timeline matching this creative prompt: '{user_prompt}'.\n"

@@ -68,3 +68,45 @@ def test_analyze_short_audio(tmp_path: Path):
     assert len(result.energy_segments) == 1
     assert result.energy_segments[0].start == 0.0
     assert result.energy_segments[0].end == result.duration_sec
+
+
+def test_analyze_audio_band_energies_and_mood(tmp_path: Path):
+    """Verifies HPSS band energies (vocal, percussive, bass, brightness) and audio_mood classification."""
+    import numpy as np
+    import soundfile as sf
+
+    sr = 22050
+    t_seg = np.linspace(0, 2.0, int(sr * 2.0), endpoint=False)
+    # Segment 1 (0-2s): pure 100 Hz bass tone
+    bass_seg = 0.5 * np.sin(2 * np.pi * 100.0 * t_seg)
+    # Segment 2 (2-4s): 1000 Hz vocal-range tone + percussive clicks
+    vocal_seg = 0.5 * np.sin(2 * np.pi * 1000.0 * t_seg)
+    for beat_idx in range(0, len(t_seg), sr // 2):
+        vocal_seg[beat_idx : beat_idx + 200] += 0.4
+
+    audio = np.concatenate([bass_seg, vocal_seg]).astype(np.float32)
+    wav_path = tmp_path / "bands.wav"
+    sf.write(str(wav_path), audio, sr)
+
+    result = analyze_audio(wav_path)
+    assert len(result.energy_segments) == 2
+
+    valid_moods = {
+        "vocal_intimate",
+        "vocal_soaring",
+        "instrumental_calm",
+        "rhythmic_groove",
+        "high_energy_drop",
+        "dramatic_build",
+    }
+    for seg in result.energy_segments:
+        assert seg.vocal_energy is not None and 0.0 <= seg.vocal_energy <= 1.0
+        assert seg.percussive_energy is not None and 0.0 <= seg.percussive_energy <= 1.0
+        assert seg.bass_energy is not None and 0.0 <= seg.bass_energy <= 1.0
+        assert seg.spectral_brightness is not None and 0.0 <= seg.spectral_brightness <= 1.0
+        assert seg.audio_mood in valid_moods
+
+    # Segment 1 should have higher bass_energy than Segment 2; Segment 2 higher vocal_energy & brightness
+    assert result.energy_segments[0].bass_energy > result.energy_segments[1].bass_energy
+    assert result.energy_segments[1].vocal_energy > result.energy_segments[0].vocal_energy
+    assert result.energy_segments[1].spectral_brightness > result.energy_segments[0].spectral_brightness

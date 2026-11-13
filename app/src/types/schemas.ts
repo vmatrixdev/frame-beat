@@ -5,11 +5,23 @@
 
 export type EnergyLevel = "low" | "medium" | "high" | "drop" | "outro" | "intro" | "build";
 
+export interface AudioCueNote {
+  id: string;
+  timestamp_ms: number;
+  tags: string[];
+  note: string;
+}
+
 export interface EnergySegment {
   start: number;
   end: number;
   level: EnergyLevel;
   label: string;
+  vocal_energy?: number;
+  percussive_energy?: number;
+  bass_energy?: number;
+  spectral_brightness?: number;
+  audio_mood?: string;
 }
 
 export interface BeatsData {
@@ -19,6 +31,7 @@ export interface BeatsData {
   downbeats: number[];
   beats: number[];
   energy_segments: EnergySegment[];
+  audio_notes?: AudioCueNote[];
 }
 
 export interface SceneCut {
@@ -33,11 +46,20 @@ export interface SceneCut {
   sharpness_score?: number;
   motion_score?: number;
   brightness_score?: number;
+  contrast_score?: number;
+  saturation_score?: number;
+  fluidity_score?: number;
+  dramatism_score?: number;
+  color_mood?: string;
+  visual_mood?: string;
   has_faces?: boolean;
   face_count?: number;
   dominant_expression?: string;
   smile_score?: number;
+  emotion_scores?: Record<string, number>;
   subject_prominence?: "close_up" | "medium_shot" | "wide_shot" | "scenic";
+  user_tags?: string[];
+  user_note?: string;
 }
 
 export interface ScenesCatalog {
@@ -59,6 +81,8 @@ export interface TimelineCut {
   scene_id?: number;
   keyframe_path?: string;
   track_index?: number;
+  user_tags?: string[];
+  user_note?: string;
 }
 
 export interface AudioTrackItem {

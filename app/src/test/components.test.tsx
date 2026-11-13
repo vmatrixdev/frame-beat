@@ -6,6 +6,12 @@ import { HighlightsList } from "../components/HighlightsList";
 import { WaveformVisualizer } from "../components/WaveformVisualizer";
 import { TimelineTrack } from "../components/TimelineTrack";
 import { VideoPreview, formatTimecode } from "../components/VideoPreview";
+import {
+  AnnotationPanel,
+  formatMsTimecode,
+  parseMsInput,
+  parseTagTokens,
+} from "../components/AnnotationPanel";
 import { ExportModal } from "../components/ExportModal";
 import { DEMO_BEATS, DEMO_TIMELINE } from "../services/mockData";
 
@@ -371,6 +377,201 @@ describe("React UI Components", () => {
       const otioBtn = screen.getByText("OpenTimelineIO");
       fireEvent.click(otioBtn);
       expect(screen.getByDisplayValue("export/amv_project.otio")).toBeInTheDocument();
+    });
+  });
+
+  describe("AnnotationPanel, Audio Cue Pins & Rich Metrics", () => {
+    it("formats and parses millisecond timestamps and tag tokens", () => {
+      expect(formatMsTimecode(12345)).toBe("00:12.345");
+      expect(parseMsInput("4520")).toBe(4520);
+      expect(parseMsInput("01:05.432")).toBe(65432);
+      expect(parseMsInput("invalid")).toBeNull();
+      expect(parseTagTokens("hero, climax, hero", ["intro"])).toEqual([
+        "intro",
+        "hero",
+        "climax",
+      ]);
+    });
+
+    it("adds tags and notes to a selected SceneCut", () => {
+      const handleUpdateScene = vi.fn();
+      const mockScene = {
+        scene_id: 0,
+        source_file: "/media/clip1.mp4",
+        start_time: 0,
+        end_time: 4,
+        duration: 4,
+        user_tags: ["hero"],
+        user_note: "Initial note",
+      };
+
+      render(
+        <AnnotationPanel
+          selectedScene={mockScene}
+          currentTime={2.5}
+          onUpdateSceneAnnotation={handleUpdateScene}
+        />
+      );
+
+      // Quick tag click adds "climax"
+      fireEvent.click(screen.getByText("+ climax"));
+      expect(handleUpdateScene).toHaveBeenCalledWith(mockScene, {
+        user_tags: ["hero", "climax"],
+        user_note: "Initial note",
+      });
+
+      // Remove existing tag "hero"
+      fireEvent.click(screen.getByLabelText("Remove tag hero"));
+      expect(handleUpdateScene).toHaveBeenCalledWith(mockScene, {
+        user_tags: [],
+        user_note: "Initial note",
+      });
+
+      // Update director note
+      const noteInput = screen.getByPlaceholderText(/Note for AI Director/i);
+      fireEvent.change(noteInput, { target: { value: "Hold on chorus" } });
+      expect(handleUpdateScene).toHaveBeenCalledWith(mockScene, {
+        user_tags: ["hero"],
+        user_note: "Hold on chorus",
+      });
+    });
+
+    it("adds and deletes millisecond-level AudioCueNotes", () => {
+      const handleAddCue = vi.fn();
+      const handleDeleteCue = vi.fn();
+      const beatsWithNotes = {
+        ...DEMO_BEATS,
+        audio_notes: [
+          {
+            id: "cue-1",
+            timestamp_ms: 4250,
+            tags: ["drop"],
+            note: "Bass drop",
+          },
+        ],
+      };
+
+      render(
+        <AnnotationPanel
+          beatsData={beatsWithNotes}
+          currentTime={8.125}
+          defaultTab="audio"
+          onAddAudioNote={handleAddCue}
+          onDeleteAudioNote={handleDeleteCue}
+        />
+      );
+
+      // Default timestamp input is 8125ms
+      const msInput = screen.getByLabelText("Audio cue timestamp (ms or mm:ss.mmm)");
+      expect(msInput).toHaveValue("8125");
+
+      // Fine-tune to exact ms and add note
+      fireEvent.change(msInput, { target: { value: "00:08.350" } });
+      fireEvent.click(screen.getByText("+ chorus"));
+      fireEvent.change(screen.getByPlaceholderText(/Cue note for AI Director/i), {
+        target: { value: "Flash white cut" },
+      });
+      fireEvent.click(screen.getByText("Add Cue"));
+
+      expect(handleAddCue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          timestamp_ms: 8350,
+          tags: ["chorus"],
+          note: "Flash white cut",
+        })
+      );
+
+      // Delete existing cue
+      fireEvent.click(screen.getByLabelText("Delete audio cue"));
+      expect(handleDeleteCue).toHaveBeenCalledWith("cue-1");
+    });
+
+    it("renders audio cue pins on WaveformVisualizer and seeks to exact ms on click", () => {
+      const handleSeek = vi.fn();
+      const beatsWithNotes = {
+        ...DEMO_BEATS,
+        audio_notes: [
+          {
+            id: "cue-pin-1",
+            timestamp_ms: 5125,
+            tags: ["drop", "climax"],
+            note: "Hard cut",
+          },
+        ],
+      };
+
+      render(
+        <WaveformVisualizer
+          beatsData={beatsWithNotes}
+          currentTime={0}
+          duration={16.0}
+          onSeek={handleSeek}
+        />
+      );
+
+      const pin = screen.getByTestId("waveform-cue-pin-cue-pin-1");
+      expect(pin).toHaveAttribute("title", "[5125ms] drop, climax: Hard cut");
+      fireEvent.click(pin);
+      expect(handleSeek).toHaveBeenCalledWith(5.125);
+    });
+
+    it("displays richer static analysis metrics and user_tags in HighlightsList and VideoPreview", () => {
+      const richScene = {
+        scene_id: 2,
+        source_file: "/media/hero_shot.mp4",
+        start_time: 1.0,
+        end_time: 4.5,
+        duration: 3.5,
+        media_type: "video" as const,
+        is_still_image: false,
+        sharpness_score: 210,
+        brightness_score: 125,
+        visual_mood: "energetic",
+        color_mood: "warm_golden",
+        fluidity_score: 0.88,
+        dramatism_score: 0.74,
+        user_tags: ["hero", "climax"],
+        user_note: "Best shot",
+      };
+
+      const { unmount } = render(
+        <HighlightsList
+          catalog={{
+            source_files: ["/media/hero_shot.mp4"],
+            total_scenes: 1,
+            scenes: [richScene],
+          }}
+          activeScene={null}
+          onSelectScene={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText("energetic")).toBeInTheDocument();
+      expect(screen.getByText("Fluid 88%")).toBeInTheDocument();
+      expect(screen.getByText("Drama 74%")).toBeInTheDocument();
+      expect(screen.getByText("#hero")).toBeInTheDocument();
+      expect(screen.getByText("#climax")).toBeInTheDocument();
+      unmount();
+
+      render(
+        <VideoPreview
+          timeline={null}
+          currentTime={0}
+          isPlaying={false}
+          playbackRate={1.0}
+          previewScene={richScene}
+          onPlayPause={vi.fn()}
+          onSeek={vi.fn()}
+          onChangePlaybackRate={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText("Mood: energetic")).toBeInTheDocument();
+      expect(screen.getByText("Color: warm_golden")).toBeInTheDocument();
+      expect(screen.getByText("Fluidity 88%")).toBeInTheDocument();
+      expect(screen.getByText("Dramatism 74%")).toBeInTheDocument();
+      expect(screen.getByText("#hero")).toBeInTheDocument();
+      expect(screen.getByText("Note: Best shot")).toBeInTheDocument();
     });
   });
 });

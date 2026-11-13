@@ -52,11 +52,68 @@ def _get_landmarker(model_path: Path = _DEFAULT_MODEL_PATH) -> Optional[Any]:
         return None
 
 
+def classify_blendshapes(bs_map: Dict[str, float]) -> Tuple[str, float, Dict[str, float]]:
+    """
+    Classifies facial blendshape scores into a dominant expression label,
+    smile confidence, and a normalized emotion_scores dictionary.
+    """
+    smile = (bs_map.get("mouthSmileLeft", 0.0) + bs_map.get("mouthSmileRight", 0.0)) / 2.0
+    jaw = bs_map.get("jawOpen", 0.0)
+    brow_up = bs_map.get("browInnerUp", 0.0)
+    brow_down = (bs_map.get("browDownLeft", 0.0) + bs_map.get("browDownRight", 0.0)) / 2.0
+    nose_sneer = (bs_map.get("noseSneerLeft", 0.0) + bs_map.get("noseSneerRight", 0.0)) / 2.0
+    frown = (bs_map.get("mouthFrownLeft", 0.0) + bs_map.get("mouthFrownRight", 0.0)) / 2.0
+    mouth_press = (bs_map.get("mouthPressLeft", 0.0) + bs_map.get("mouthPressRight", 0.0)) / 2.0
+    eye_wide = (bs_map.get("eyeWideLeft", 0.0) + bs_map.get("eyeWideRight", 0.0)) / 2.0
+    eye_squint = (bs_map.get("eyeSquintLeft", 0.0) + bs_map.get("eyeSquintRight", 0.0)) / 2.0
+    mouth_stretch = (bs_map.get("mouthStretchLeft", 0.0) + bs_map.get("mouthStretchRight", 0.0)) / 2.0
+
+    joy_score = min(1.0, max(0.0, 1.1 * smile + 0.15 * eye_squint + (0.20 * jaw if smile >= 0.30 else 0.0)))
+    surprise_score = min(1.0, max(0.0, 0.45 * eye_wide + 0.35 * brow_up + 0.30 * jaw - 0.30 * smile))
+    anger_score = min(1.0, max(0.0, 0.50 * brow_down + 0.35 * nose_sneer + 0.25 * mouth_press - 0.30 * smile))
+    sadness_score = min(
+        1.0, max(0.0, 0.55 * frown + 0.35 * brow_up * (1.0 - eye_wide) + 0.15 * mouth_press - 0.30 * smile)
+    )
+    worry_score = min(
+        1.0, max(0.0, 0.35 * brow_up + 0.35 * mouth_stretch + 0.20 * frown + 0.20 * eye_wide - 0.30 * smile)
+    )
+    max_expr = max(joy_score, surprise_score, anger_score, sadness_score, worry_score)
+    neutral_score = max(0.0, 1.0 - max_expr)
+
+    emotion_scores = {
+        "joy": round(float(joy_score), 3),
+        "surprise": round(float(surprise_score), 3),
+        "anger": round(float(anger_score), 3),
+        "sadness": round(float(sadness_score), 3),
+        "worry": round(float(worry_score), 3),
+        "neutral": round(float(neutral_score), 3),
+    }
+
+    if smile >= 0.45 and jaw >= 0.25:
+        expression = "laughing / ecstatic"
+    elif smile >= 0.35:
+        expression = "joyful / smiling"
+    elif surprise_score >= 0.40 or (eye_wide >= 0.40 and jaw >= 0.25):
+        expression = "surprised / amazed"
+    elif anger_score >= 0.38 or (brow_down >= 0.45 and nose_sneer >= 0.25):
+        expression = "angry / intense"
+    elif sadness_score >= 0.35 or frown >= 0.40:
+        expression = "sad / melancholic"
+    elif worry_score >= 0.35 or (brow_up >= 0.35 and mouth_stretch >= 0.30):
+        expression = "worried / tense"
+    elif brow_down >= 0.30 or mouth_press >= 0.35:
+        expression = "focused / determined"
+    else:
+        expression = "calm / neutral"
+
+    return expression, round(float(smile), 3), emotion_scores
+
+
 def analyze_frame_semantics(frame_bgr: np.ndarray) -> Dict[str, Any]:
     """
     Runs local face landmark & blendshape inference on an OpenCV BGR frame.
     Returns dictionary with has_faces, face_count, dominant_expression,
-    smile_score, and subject_prominence.
+    smile_score, subject_prominence, and emotion_scores.
     """
     default_result: Dict[str, Any] = {
         "has_faces": False,
@@ -64,6 +121,7 @@ def analyze_frame_semantics(frame_bgr: np.ndarray) -> Dict[str, Any]:
         "dominant_expression": None,
         "smile_score": None,
         "subject_prominence": "scenic",
+        "emotion_scores": None,
     }
 
     if frame_bgr is None or frame_bgr.size == 0:
@@ -109,39 +167,44 @@ def analyze_frame_semantics(frame_bgr: np.ndarray) -> Dict[str, Any]:
         else:
             prominence = "wide_shot"
 
-        # Extract facial blendshapes (pick most expressive / highest smile across faces)
+        # Extract facial blendshapes (pick most expressive face across detected faces)
+        best_expression = "calm / neutral"
         best_smile = 0.0
-        best_jaw = 0.0
-        best_brow = 0.0
+        best_emotions: Optional[Dict[str, float]] = {
+            "joy": 0.0,
+            "surprise": 0.0,
+            "anger": 0.0,
+            "sadness": 0.0,
+            "worry": 0.0,
+            "neutral": 1.0,
+        }
+        best_rank = (-1.0, -1.0)
 
         blendshapes_list = result.face_blendshapes or []
         for face_bs in blendshapes_list:
             bs_map = {b.category_name: b.score for b in face_bs}
-            smile = (bs_map.get("mouthSmileLeft", 0.0) + bs_map.get("mouthSmileRight", 0.0)) / 2.0
-            jaw = bs_map.get("jawOpen", 0.0)
-            brow = bs_map.get("browInnerUp", 0.0)
-            if smile >= best_smile:
-                best_smile = smile
-                best_jaw = jaw
-                best_brow = brow
-
-        smile_score = round(float(best_smile), 3)
-
-        if best_smile >= 0.45 and best_jaw >= 0.25:
-            expression = "laughing / ecstatic"
-        elif best_smile >= 0.35:
-            expression = "joyful / smiling"
-        elif best_brow >= 0.40:
-            expression = "surprised / expressive"
-        else:
-            expression = "calm / neutral"
+            expr, smile_val, emotions = classify_blendshapes(bs_map)
+            expressiveness = max(
+                emotions["joy"],
+                emotions["surprise"],
+                emotions["anger"],
+                emotions["sadness"],
+                emotions["worry"],
+            )
+            rank = (expressiveness, smile_val)
+            if rank > best_rank:
+                best_rank = rank
+                best_expression = expr
+                best_smile = smile_val
+                best_emotions = emotions
 
         return {
             "has_faces": True,
             "face_count": face_count,
-            "dominant_expression": expression,
-            "smile_score": smile_score,
+            "dominant_expression": best_expression,
+            "smile_score": best_smile,
             "subject_prominence": prominence,
+            "emotion_scores": best_emotions,
         }
     except Exception as e:
         logger.debug(f"Face semantic analysis error: {e}")
@@ -161,6 +224,7 @@ def analyze_frames_semantics(frames_bgr: List[np.ndarray]) -> Tuple[Dict[str, An
             "dominant_expression": None,
             "smile_score": None,
             "subject_prominence": "scenic",
+            "emotion_scores": None,
         }, 0
 
     best_idx = len(frames_bgr) // 2

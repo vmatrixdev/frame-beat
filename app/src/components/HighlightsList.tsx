@@ -351,7 +351,7 @@ export const HighlightsList: React.FC<HighlightsListProps> = ({
                 </div>
 
                 {/* Statically Analyzed Metrics Badges */}
-                <div className="flex items-center gap-2 mt-1 text-[10px] font-mono">
+                <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] font-mono">
                   {scene.sharpness_score !== null && scene.sharpness_score !== undefined && (
                     <span
                       title="Laplacian Variance (Image Sharpness & Detail)"
@@ -404,6 +404,43 @@ export const HighlightsList: React.FC<HighlightsListProps> = ({
                       </span>
                     </span>
                   )}
+
+                  {scene.visual_mood && (
+                    <span
+                      title={`Visual Mood: ${scene.visual_mood}${scene.color_mood ? ` • Color: ${scene.color_mood}` : ""}`}
+                      className="px-1.5 py-0.2 rounded bg-violet-950/60 border border-violet-800/60 text-violet-300"
+                    >
+                      {scene.visual_mood}
+                    </span>
+                  )}
+
+                  {scene.fluidity_score !== null && scene.fluidity_score !== undefined && (
+                    <span
+                      title="Motion Fluidity Score"
+                      className="px-1 py-0.2 rounded bg-teal-950/50 border border-teal-800/60 text-teal-300"
+                    >
+                      Fluid {Math.round(scene.fluidity_score * 100)}%
+                    </span>
+                  )}
+
+                  {scene.dramatism_score !== null && scene.dramatism_score !== undefined && (
+                    <span
+                      title="Visual Dramatism Score"
+                      className="px-1 py-0.2 rounded bg-fuchsia-950/50 border border-fuchsia-800/60 text-fuchsia-300"
+                    >
+                      Drama {Math.round(scene.dramatism_score * 100)}%
+                    </span>
+                  )}
+
+                  {scene.user_tags &&
+                    scene.user_tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="px-1.5 py-0.2 rounded bg-indigo-950/70 border border-indigo-700/60 text-indigo-200"
+                      >
+                        #{tag}
+                      </span>
+                    ))}
                 </div>
               </div>
             </div>

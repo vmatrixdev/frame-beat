@@ -535,6 +535,65 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
               </div>
             </div>
           </div>
+
+          {(previewScene.visual_mood ||
+            previewScene.color_mood ||
+            previewScene.fluidity_score !== undefined ||
+            previewScene.dramatism_score !== undefined ||
+            (previewScene.emotion_scores && Object.keys(previewScene.emotion_scores).length > 0) ||
+            (previewScene.user_tags && previewScene.user_tags.length > 0) ||
+            previewScene.user_note) && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-1.5 border-t border-slate-800/80 text-[10px] font-mono">
+              {previewScene.visual_mood && (
+                <span className="px-1.5 py-0.5 rounded bg-violet-950/60 border border-violet-800/60 text-violet-300">
+                  Mood: {previewScene.visual_mood}
+                </span>
+              )}
+              {previewScene.color_mood && (
+                <span className="px-1.5 py-0.5 rounded bg-amber-950/50 border border-amber-800/60 text-amber-300">
+                  Color: {previewScene.color_mood}
+                </span>
+              )}
+              {previewScene.fluidity_score !== null && previewScene.fluidity_score !== undefined && (
+                <span className="px-1.5 py-0.5 rounded bg-teal-950/50 border border-teal-800/60 text-teal-300">
+                  Fluidity {Math.round(previewScene.fluidity_score * 100)}%
+                </span>
+              )}
+              {previewScene.dramatism_score !== null && previewScene.dramatism_score !== undefined && (
+                <span className="px-1.5 py-0.5 rounded bg-fuchsia-950/50 border border-fuchsia-800/60 text-fuchsia-300">
+                  Dramatism {Math.round(previewScene.dramatism_score * 100)}%
+                </span>
+              )}
+              {previewScene.emotion_scores &&
+                Object.entries(previewScene.emotion_scores)
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 3)
+                  .map(([emo, score]) => (
+                    <span
+                      key={emo}
+                      className="px-1.5 py-0.5 rounded bg-rose-950/40 border border-rose-800/50 text-rose-200"
+                    >
+                      {emo} {Math.round(score * 100)}%
+                    </span>
+                  ))}
+              {previewScene.user_tags?.map((tag) => (
+                <span
+                  key={tag}
+                  className="px-1.5 py-0.5 rounded bg-indigo-950/70 border border-indigo-700/60 text-indigo-200"
+                >
+                  #{tag}
+                </span>
+              ))}
+              {previewScene.user_note && (
+                <span
+                  title={previewScene.user_note}
+                  className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300 truncate max-w-[240px]"
+                >
+                  Note: {previewScene.user_note}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
 

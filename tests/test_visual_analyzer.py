@@ -219,3 +219,105 @@ def test_analyze_video_quick_cut_parametrization(tmp_path: Path):
     assert len(cuts) >= 3
     for cut in cuts:
         assert 0.3 <= cut.duration <= 0.6
+
+
+def test_compute_visual_mood_metrics_image_and_video():
+    """Verifies visual mood, contrast, saturation, dramatism, and Farneback fluidity metrics."""
+    import cv2
+    from engine.visual_analyzer import compute_visual_mood_metrics
+
+    # Single warm golden frame -> fluidity_score must be None
+    warm_frame = np.full((180, 320, 3), (40, 150, 220), dtype=np.uint8)  # BGR: warm orange/gold
+    cv2.rectangle(warm_frame, (40, 40), (160, 140), (20, 200, 240), -1)
+    img_metrics = compute_visual_mood_metrics([warm_frame])
+    assert img_metrics["fluidity_score"] is None
+    assert 0.0 <= img_metrics["contrast_score"] <= 100.0
+    assert 0.0 <= img_metrics["saturation_score"] <= 100.0
+    assert 0.0 <= img_metrics["dramatism_score"] <= 100.0
+    assert img_metrics["color_mood"] in {
+        "warm_golden",
+        "cool_cinematic",
+        "vibrant_festive",
+        "moody_dark",
+        "neutral_balanced",
+    }
+    assert img_metrics["visual_mood"] in {
+        "joyful_bright",
+        "energetic_action",
+        "dramatic_intense",
+        "serene_scenic",
+        "melancholic_muted",
+        "warm_intimate",
+    }
+
+    # Multi-frame smooth horizontal pan -> fluidity_score populated in [0, 100]
+    frames = []
+    for i in range(4):
+        f = np.zeros((180, 320, 3), dtype=np.uint8)
+        cv2.circle(f, (60 + i * 20, 90), 30, (220, 120, 40), -1)
+        frames.append(f)
+    vid_metrics = compute_visual_mood_metrics(frames)
+    assert vid_metrics["fluidity_score"] is not None
+    assert 0.0 <= vid_metrics["fluidity_score"] <= 100.0
+    assert vid_metrics["color_mood"] == "moody_dark"
+
+
+def test_analyze_image_and_video_populate_mood_fields(synthetic_video_path: Path, tmp_path: Path):
+    """Verifies analyze_image, analyze_video, and analyze_single_segment populate new mood fields."""
+    import cv2
+    from engine.visual_analyzer import analyze_single_segment
+
+    img_path = tmp_path / "bright.jpg"
+    img = np.full((240, 320, 3), (200, 220, 180), dtype=np.uint8)
+    cv2.imwrite(str(img_path), img)
+    img_cut = analyze_image(img_path, output_thumbnail_dir=tmp_path / "t_img")
+    assert img_cut.fluidity_score is None
+    assert img_cut.contrast_score is not None
+    assert img_cut.saturation_score is not None
+    assert img_cut.dramatism_score is not None
+    assert img_cut.color_mood is not None
+    assert img_cut.visual_mood is not None
+
+    vid_cuts = analyze_video(synthetic_video_path, output_thumbnail_dir=tmp_path / "t_vid")
+    assert len(vid_cuts) >= 1
+    assert vid_cuts[0].fluidity_score is not None
+    assert vid_cuts[0].visual_mood is not None
+
+    seg_cut = analyze_single_segment(
+        source_path=synthetic_video_path,
+        start_time=0.5,
+        end_time=1.8,
+        sample_frames=4,
+        output_thumbnail_dir=tmp_path / "t_seg",
+    )
+    assert seg_cut.fluidity_score is not None
+    assert seg_cut.dramatism_score is not None
+
+
+def test_classify_blendshapes_expanded_emotions():
+    """Verifies all 8 expanded facial expressions and emotion_scores keys."""
+    from engine.face_analyzer import classify_blendshapes
+
+    cases = [
+        ({"mouthSmileLeft": 0.7, "mouthSmileRight": 0.7, "jawOpen": 0.4}, "laughing / ecstatic", "joy"),
+        ({"mouthSmileLeft": 0.5, "mouthSmileRight": 0.5, "jawOpen": 0.05}, "joyful / smiling", "joy"),
+        ({"eyeWideLeft": 0.7, "eyeWideRight": 0.7, "browInnerUp": 0.6, "jawOpen": 0.5}, "surprised / amazed", "surprise"),
+        ({"browDownLeft": 0.7, "browDownRight": 0.7, "noseSneerLeft": 0.5, "noseSneerRight": 0.5}, "angry / intense", "anger"),
+        ({"mouthFrownLeft": 0.7, "mouthFrownRight": 0.7, "browInnerUp": 0.5}, "sad / melancholic", "sadness"),
+        ({"browInnerUp": 0.6, "mouthStretchLeft": 0.6, "mouthStretchRight": 0.6}, "worried / tense", "worry"),
+        ({"browDownLeft": 0.4, "browDownRight": 0.4, "mouthPressLeft": 0.5, "mouthPressRight": 0.5}, "focused / determined", None),
+        ({}, "calm / neutral", "neutral"),
+    ]
+    expected_keys = {"joy", "surprise", "anger", "sadness", "worry", "neutral"}
+    for bs_map, expected_expr, dominant_key in cases:
+        expr, smile, scores = classify_blendshapes(bs_map)
+        assert expr == expected_expr
+        assert 0.0 <= smile <= 1.0
+        assert set(scores.keys()) == expected_keys
+        for val in scores.values():
+            assert 0.0 <= val <= 1.0
+        if dominant_key == "neutral":
+            assert scores["neutral"] == max(scores.values())
+        elif dominant_key is not None:
+            non_neutral_max = max(scores[k] for k in expected_keys if k != "neutral")
+            assert scores[dominant_key] == non_neutral_max and non_neutral_max > 0.35

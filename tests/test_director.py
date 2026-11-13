@@ -6,8 +6,14 @@ from __future__ import annotations
 import os
 import pytest
 
-from engine.director import direct_amv, direct_amv_deterministic
+from engine.director import (
+    DIRECTOR_SYSTEM_INSTRUCTION,
+    build_director_input,
+    direct_amv,
+    direct_amv_deterministic,
+)
 from engine.models import (
+    AudioCueNote,
     BeatsData,
     EnergySegment,
     ScenesCatalog,
@@ -176,3 +182,110 @@ def test_direct_amv_zero_duration_audio(mock_catalog: ScenesCatalog):
     )
     with pytest.raises(ValueError, match="duration must be greater than 0"):
         direct_amv_deterministic(beats=invalid_beats, catalog=mock_catalog)
+
+
+def test_build_director_input_includes_rich_metrics_and_annotations():
+    """Verifies build_director_input forwards new audio/visual/emotion metrics and user annotations."""
+    beats = BeatsData(
+        duration_sec=4.0,
+        tempo_bpm=120.0,
+        downbeats=[0.0, 2.0],
+        beats=[0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5],
+        energy_segments=[
+            EnergySegment(
+                start=0.0,
+                end=2.0,
+                level="low",
+                label="segment_1",
+                vocal_energy=0.82,
+                percussive_energy=0.15,
+                bass_energy=0.22,
+                spectral_brightness=0.35,
+                audio_mood="vocal_intimate",
+            ),
+            EnergySegment(
+                start=2.0,
+                end=4.0,
+                level="high",
+                label="segment_2",
+                vocal_energy=0.40,
+                percussive_energy=0.91,
+                bass_energy=0.88,
+                spectral_brightness=0.72,
+                audio_mood="high_energy_drop",
+            ),
+        ],
+        audio_notes=[
+            AudioCueNote(
+                id="cue-1",
+                timestamp_ms=2000,
+                tags=["drop", "impact"],
+                note="Hard beat drop here",
+            )
+        ],
+    )
+    catalog = ScenesCatalog(
+        source_files=["/mock/clip.mp4"],
+        total_scenes=1,
+        scenes=[
+            SceneCut(
+                scene_id=0,
+                source_file="/mock/clip.mp4",
+                start_time=0.0,
+                end_time=4.0,
+                duration=4.0,
+                sharpness_score=510.0,
+                motion_score=45.0,
+                brightness_score=140.0,
+                contrast_score=62.5,
+                saturation_score=70.0,
+                fluidity_score=88.2,
+                dramatism_score=58.0,
+                color_mood="warm_golden",
+                visual_mood="dramatic_intense",
+                has_faces=True,
+                face_count=1,
+                dominant_expression="focused / determined",
+                smile_score=0.12,
+                subject_prominence="close_up",
+                emotion_scores={
+                    "joy": 0.1,
+                    "surprise": 0.05,
+                    "anger": 0.2,
+                    "sadness": 0.05,
+                    "worry": 0.1,
+                    "neutral": 0.5,
+                },
+                user_tags=["hero", "climax"],
+                user_note="Use on the 2.0s drop",
+            )
+        ],
+    )
+
+    payload = build_director_input(beats=beats, catalog=catalog, user_prompt="Dramatic AMV")
+    assert payload["audio_cue_notes"] == [
+        {
+            "id": "cue-1",
+            "timestamp_ms": 2000,
+            "timestamp_sec": 2.0,
+            "tags": ["drop", "impact"],
+            "note": "Hard beat drop here",
+        }
+    ]
+    seg0 = payload["music_profile"]["energy_segments"][0]
+    assert seg0["vocal_energy"] == 0.82
+    assert seg0["audio_mood"] == "vocal_intimate"
+
+    scene0 = payload["available_scenes"][0]
+    assert scene0["contrast_score"] == 62.5
+    assert scene0["saturation_score"] == 70.0
+    assert scene0["fluidity_score"] == 88.2
+    assert scene0["dramatism_score"] == 58.0
+    assert scene0["color_mood"] == "warm_golden"
+    assert scene0["visual_mood"] == "dramatic_intense"
+    assert scene0["emotion_scores"]["neutral"] == 0.5
+    assert scene0["user_tags"] == ["hero", "climax"]
+    assert scene0["user_note"] == "Use on the 2.0s drop"
+
+    for keyword in ["user_tags", "user_note", "audio_cue_notes", "vocal_energy", "fluidity_score", "dramatism_score"]:
+        assert keyword in DIRECTOR_SYSTEM_INSTRUCTION

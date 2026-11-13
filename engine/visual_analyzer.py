@@ -6,7 +6,7 @@ Calculates frame sharpness (Laplacian variance) and brightness metrics.
 
 from __future__ import annotations
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 from scenedetect import open_video, SceneManager, ContentDetector
@@ -48,6 +48,125 @@ def compute_motion_score(frames: List[np.ndarray]) -> float:
         diffs.append(min(100.0, diff * 3.0))
         prev_gray = curr_gray
     return round(sum(diffs) / len(diffs), 2) if diffs else 0.0
+
+
+def compute_visual_mood_metrics(frames_bgr: List[np.ndarray]) -> Dict[str, Any]:
+    """
+    Computes visual mood and aesthetic metrics across one or more BGR frames:
+    - contrast_score (0.0-100.0)
+    - saturation_score (0.0-100.0)
+    - fluidity_score (0.0-100.0 via Farneback optical flow consistency for >= 2 frames, else None)
+    - dramatism_score (0.0-100.0)
+    - color_mood (warm_golden, cool_cinematic, vibrant_festive, moody_dark, neutral_balanced)
+    - visual_mood (joyful_bright, energetic_action, dramatic_intense, serene_scenic, melancholic_muted, warm_intimate)
+    """
+    if not frames_bgr:
+        return {
+            "contrast_score": None,
+            "saturation_score": None,
+            "fluidity_score": None,
+            "dramatism_score": None,
+            "color_mood": None,
+            "visual_mood": None,
+        }
+
+    rep_frame = frames_bgr[len(frames_bgr) // 2]
+    small = cv2.resize(rep_frame, (160, 90), interpolation=cv2.INTER_AREA)
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
+
+    brightness = float(np.mean(gray))
+    contrast_score = round(min(100.0, max(0.0, float(np.std(gray)) / 80.0 * 100.0)), 2)
+    saturation_score = round(min(100.0, max(0.0, float(np.mean(hsv[:, :, 1])) / 255.0 * 100.0)), 2)
+
+    b_mean = float(np.mean(small[:, :, 0]))
+    r_mean = float(np.mean(small[:, :, 2]))
+    warmth = (r_mean - b_mean) / 255.0
+
+    if brightness < 65.0 or (brightness < 75.0 and contrast_score >= 25.0):
+        color_mood = "moody_dark"
+    elif saturation_score >= 55.0 and brightness >= 95.0:
+        color_mood = "vibrant_festive"
+    elif warmth >= 0.08:
+        color_mood = "warm_golden"
+    elif warmth <= -0.08:
+        color_mood = "cool_cinematic"
+    else:
+        color_mood = "neutral_balanced"
+
+    fluidity_score: Optional[float] = None
+    motion_factor = 0.0
+    if len(frames_bgr) >= 2:
+        motion_factor = compute_motion_score(frames_bgr)
+        gray_seq = [
+            cv2.cvtColor(cv2.resize(f, (160, 90), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY)
+            for f in frames_bgr
+        ]
+        pair_fluidities: List[float] = []
+        for i in range(len(gray_seq) - 1):
+            flow = cv2.calcOpticalFlowFarneback(
+                gray_seq[i],
+                gray_seq[i + 1],
+                None,
+                0.5,
+                3,
+                15,
+                3,
+                5,
+                1.2,
+                0,
+            )
+            mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+            mean_mag = float(np.mean(mag))
+            if mean_mag < 0.05:
+                pair_fluidities.append(85.0)
+            else:
+                mag_sum = float(np.sum(mag)) + 1e-6
+                mean_cos = float(np.sum(mag * np.cos(ang))) / mag_sum
+                mean_sin = float(np.sum(mag * np.sin(ang))) / mag_sum
+                dir_consistency = float(np.hypot(mean_cos, mean_sin))
+                mag_cv = float(np.std(mag)) / (mean_mag + 1e-6)
+                mag_consistency = max(0.0, 1.0 - min(1.0, mag_cv / 2.5))
+                pair_fluidities.append(100.0 * (0.70 * dir_consistency + 0.30 * mag_consistency))
+        if pair_fluidities:
+            fluidity_score = round(min(100.0, max(0.0, sum(pair_fluidities) / len(pair_fluidities))), 2)
+
+    darkness_factor = max(0.0, (128.0 - brightness) / 128.0) * 100.0
+    dramatism_score = round(
+        min(
+            100.0,
+            max(
+                0.0,
+                0.45 * contrast_score
+                + 0.25 * darkness_factor
+                + 0.20 * motion_factor
+                + 0.10 * saturation_score,
+            ),
+        ),
+        2,
+    )
+
+    if motion_factor >= 30.0 and (contrast_score >= 30.0 or saturation_score >= 40.0):
+        visual_mood = "energetic_action"
+    elif dramatism_score >= 55.0 or (color_mood == "moody_dark" and contrast_score >= 35.0):
+        visual_mood = "dramatic_intense"
+    elif brightness >= 130.0 and saturation_score >= 45.0:
+        visual_mood = "joyful_bright"
+    elif color_mood == "warm_golden" and motion_factor < 25.0:
+        visual_mood = "warm_intimate"
+    elif saturation_score < 28.0 and brightness < 115.0:
+        visual_mood = "melancholic_muted"
+    else:
+        visual_mood = "serene_scenic"
+
+    return {
+        "contrast_score": contrast_score,
+        "saturation_score": saturation_score,
+        "fluidity_score": fluidity_score,
+        "dramatism_score": dramatism_score,
+        "color_mood": color_mood,
+        "visual_mood": visual_mood,
+    }
 
 
 def extract_highlight_windows(
@@ -218,6 +337,7 @@ def analyze_image(
 
     sharpness, brightness = compute_frame_metrics(frame)
     semantics = analyze_frame_semantics(frame)
+    mood_metrics = compute_visual_mood_metrics([frame])
 
     return SceneCut(
         scene_id=0,
@@ -236,6 +356,13 @@ def analyze_image(
         dominant_expression=semantics["dominant_expression"],
         smile_score=semantics["smile_score"],
         subject_prominence=semantics["subject_prominence"],
+        emotion_scores=semantics.get("emotion_scores"),
+        contrast_score=mood_metrics["contrast_score"],
+        saturation_score=mood_metrics["saturation_score"],
+        fluidity_score=mood_metrics["fluidity_score"],
+        dramatism_score=mood_metrics["dramatism_score"],
+        color_mood=mood_metrics["color_mood"],
+        visual_mood=mood_metrics["visual_mood"],
     )
 
 
@@ -320,10 +447,13 @@ def analyze_video(
             "dominant_expression": None,
             "smile_score": None,
             "subject_prominence": "scenic",
+            "emotion_scores": None,
         }
+        mood_metrics = compute_visual_mood_metrics([])
 
         if sampled_frames:
             semantics, best_idx = analyze_frames_semantics(sampled_frames)
+            mood_metrics = compute_visual_mood_metrics(sampled_frames)
             frame = sampled_frames[best_idx]
             thumb_name = f"{video_path.stem}_scene_{idx:04d}.jpg"
             thumb_path = output_dir / thumb_name
@@ -354,6 +484,13 @@ def analyze_video(
                 dominant_expression=semantics["dominant_expression"],
                 smile_score=semantics["smile_score"],
                 subject_prominence=semantics["subject_prominence"],
+                emotion_scores=semantics.get("emotion_scores"),
+                contrast_score=mood_metrics["contrast_score"],
+                saturation_score=mood_metrics["saturation_score"],
+                fluidity_score=mood_metrics["fluidity_score"],
+                dramatism_score=mood_metrics["dramatism_score"],
+                color_mood=mood_metrics["color_mood"],
+                visual_mood=mood_metrics["visual_mood"],
             )
         )
 
@@ -468,10 +605,13 @@ def analyze_single_segment(
         "dominant_expression": None,
         "smile_score": None,
         "subject_prominence": "scenic",
+        "emotion_scores": None,
     }
+    mood_metrics = compute_visual_mood_metrics([])
 
     if sampled_frames:
         semantics, best_idx = analyze_frames_semantics(sampled_frames)
+        mood_metrics = compute_visual_mood_metrics(sampled_frames)
         frame = sampled_frames[best_idx]
         thumb_name = f"{source_path.stem}_seg_{int(start_sec * 1000)}_{int(end_sec * 1000)}.jpg"
         thumb_path = output_dir / thumb_name
@@ -500,4 +640,11 @@ def analyze_single_segment(
         dominant_expression=semantics["dominant_expression"],
         smile_score=semantics["smile_score"],
         subject_prominence=semantics["subject_prominence"],
+        emotion_scores=semantics.get("emotion_scores"),
+        contrast_score=mood_metrics["contrast_score"],
+        saturation_score=mood_metrics["saturation_score"],
+        fluidity_score=mood_metrics["fluidity_score"],
+        dramatism_score=mood_metrics["dramatism_score"],
+        color_mood=mood_metrics["color_mood"],
+        visual_mood=mood_metrics["visual_mood"],
     )

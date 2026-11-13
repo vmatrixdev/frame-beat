@@ -3,8 +3,15 @@ Data contracts for AMV Maker pipeline.
 Corresponds to specs/schemas.json.
 """
 
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
+
+
+class AudioCueNote(BaseModel):
+    id: str = Field(..., description="Unique identifier for the audio cue note")
+    timestamp_ms: int = Field(..., description="Millisecond-accurate position on the audio track")
+    tags: List[str] = Field(default_factory=list, description="User-assigned cue tags")
+    note: str = Field(default="", description="User note describing the musical moment")
 
 
 class EnergySegment(BaseModel):
@@ -14,6 +21,14 @@ class EnergySegment(BaseModel):
         ..., description="Dynamic energy level"
     )
     label: str = Field(..., description="Segment descriptor (e.g., intro, verse_1, chorus_1)")
+    vocal_energy: Optional[float] = Field(default=None, description="Normalized vocal band energy (0.0-1.0)")
+    percussive_energy: Optional[float] = Field(default=None, description="Normalized percussive energy (0.0-1.0)")
+    bass_energy: Optional[float] = Field(default=None, description="Normalized bass band energy (0.0-1.0)")
+    spectral_brightness: Optional[float] = Field(default=None, description="Normalized spectral brightness (0.0-1.0)")
+    audio_mood: Optional[str] = Field(
+        default=None,
+        description="Classified audio mood (e.g., vocal_intimate, vocal_soaring, instrumental_calm, rhythmic_groove, high_energy_drop, dramatic_build)",
+    )
 
 
 class BeatsData(BaseModel):
@@ -24,6 +39,9 @@ class BeatsData(BaseModel):
     beats: List[float] = Field(..., description="Detected beat timestamps in seconds")
     energy_segments: List[EnergySegment] = Field(
         default_factory=list, description="Calculated energy segments"
+    )
+    audio_notes: List[AudioCueNote] = Field(
+        default_factory=list, description="User-authored millisecond audio cue notes"
     )
 
 
@@ -52,6 +70,24 @@ class SceneCut(BaseModel):
     subject_prominence: Optional[Literal["close_up", "medium_shot", "wide_shot", "scenic"]] = Field(
         default=None, description="Subject framing prominence based on face bounding box area"
     )
+    contrast_score: Optional[float] = Field(default=None, description="Contrast score (0.0-100.0)")
+    saturation_score: Optional[float] = Field(default=None, description="Saturation score (0.0-100.0)")
+    fluidity_score: Optional[float] = Field(default=None, description="Optical-flow motion fluidity score (0.0-100.0)")
+    dramatism_score: Optional[float] = Field(default=None, description="Visual dramatism score (0.0-100.0)")
+    color_mood: Optional[str] = Field(
+        default=None,
+        description="Color mood (e.g. warm_golden, cool_cinematic, vibrant_festive, moody_dark, neutral_balanced)",
+    )
+    visual_mood: Optional[str] = Field(
+        default=None,
+        description="Visual mood (e.g. joyful_bright, energetic_action, dramatic_intense, serene_scenic, melancholic_muted, warm_intimate)",
+    )
+    emotion_scores: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Emotion scores dict (keys: joy, surprise, anger, sadness, worry, neutral)",
+    )
+    user_tags: List[str] = Field(default_factory=list, description="User-assigned scene tags")
+    user_note: Optional[str] = Field(default=None, description="User note for this scene")
 
 
 class ScenesCatalog(BaseModel):
@@ -75,6 +111,8 @@ class TimelineCut(BaseModel):
     track_index: Optional[int] = Field(
         default=0, description="Video track index (0 = V1, 1 = V2, etc.)"
     )
+    user_tags: List[str] = Field(default_factory=list, description="User-assigned cut tags")
+    user_note: Optional[str] = Field(default=None, description="User note for this cut")
 
 
 class Timeline(BaseModel):

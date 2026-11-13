@@ -204,6 +204,37 @@ export const WaveformVisualizer: React.FC<WaveformVisualizerProps> = ({
         </div>
       )}
 
+      {/* Millisecond Audio Cue Note Pins */}
+      {beatsData?.audio_notes?.map((cue) => {
+        const cueSec = cue.timestamp_ms / 1000;
+        const leftPct = duration > 0 ? (cueSec / duration) * 100 : 0;
+        if (leftPct < 0 || leftPct > 100) return null;
+        const tagsText = cue.tags.length > 0 ? cue.tags.join(", ") : "cue";
+        const tooltip = `[${cue.timestamp_ms}ms] ${tagsText}${cue.note ? `: ${cue.note}` : ""}`;
+
+        return (
+          <button
+            key={cue.id}
+            type="button"
+            data-testid={`waveform-cue-pin-${cue.id}`}
+            title={tooltip}
+            aria-label={tooltip}
+            style={{ left: `${leftPct}%` }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSeek(cueSec);
+            }}
+            className="absolute top-0 bottom-0 w-3 -translate-x-1/2 z-25 flex flex-col items-center group/pin cursor-pointer focus:outline-none"
+          >
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-slate-950 shadow-md group-hover/pin:scale-125 transition-transform mt-0.5" />
+            <span className="w-[2px] flex-1 bg-amber-400/80 group-hover/pin:bg-amber-300" />
+          </button>
+        );
+      })}
+
       {/* Interactive Scrubber Playhead */}
       <div
         data-testid="waveform-playhead"
