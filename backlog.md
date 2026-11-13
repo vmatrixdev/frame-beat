@@ -96,17 +96,22 @@ Autonomous verification, packaging scripts, CI/CD, and developer documentation.
 
 ---
 
-## Phase 5: Manual Segmenting, Contextual Analyzer Plugins & Annotations (Future Ideas)
-- [ ] **5.1: Manual Highlight / Segment Creation**
-  - Allow users to set custom In/Out markers on any raw video in the player to create their own highlight segments alongside or instead of automatic PySceneDetect cuts.
-- [ ] **5.2: Contextual Menus for On-Demand Static Analysis**
-  - Add right-click / contextual menus on raw assets and individual highlight segments to manually run or re-run any analyzer (PySceneDetect, Sharpness/Brightness/Motion, MediaPipe Face & Emotion, etc.).
-  - Ensure every automatic import-time analysis step is also individually runnable/re-runnable manually on any selected item.
-- [ ] **5.3: Configurable Sampling Rate & Analyzer Settings**
-  - Expose per-run or global settings to increase/decrease frame sampling rate (e.g., midpoint, 5-frame, 1 fps, or dense sampling) and confidence thresholds for video segments.
-- [ ] **5.4: Pluggable Static Analyzer Architecture**
-  - Design a plugin interface so new local static analyzers can be added cleanly (e.g., color palette extraction, speech/laughter detection, object/scene tagging, camera motion).
-- [ ] **5.5: Manual User Annotations & Overrides**
-  - Allow users to manually annotate highlights (custom tags, notes, ratings, or emotion/subject overrides) stored in the catalog JSON.
-- [ ] **5.6: Scoped AI Director Role (Architectural Question)**
-  - Revisit when the cloud AI Director is needed (e.g., full-timeline creative pacing vs. localized section suggestions vs. local rule-based/annotation-driven assembly without LLM calls).
+## Phase 5: Manual Segmenting, Contextual Analyzers & Annotations
+- [x] **5.1: Manual Highlight / Segment Creation & Multi-Track Timeline**
+  - Multi-track video (`V1`, `V2`+) and audio (`A1`, `A2`+) timeline with drag-and-drop across tracks, left/right trimming clamped to source duration, split at playhead, beat snapping, non-collapsing delete, cursor-centered `Shift+Wheel` zoom, and resizable sidebar/timeline panels.
+  - On-demand `[start, end]` segment analysis via `analyze-segment` (`/api/analyze-segment`).
+- [x] **5.2: Contextual Menus for On-Demand Static Analysis**
+  - Right-click / contextual menus in `MediaLibraryTree` on raw videos, cuts, and photos: `Clip Highlights...`, `Analyze Faces (5 frames)`, `Deep Face Scan (15 frames)`, and `Add to Timeline`.
+  - Streaming raw-asset discovery and progressive highlight updates (`--stream` NDJSON).
+- [x] **5.3: Configurable Sampling Rate & Analyzer Settings**
+  - `ClipHighlightsModal` and `HighlightsList` settings for Target Highlight Length (`0.5s Quick`, `1.5s Fast`, `3.5s Balanced`, `5.0s Slow` presets), Max Scene Before Split, Minimum Cut Length, and Scene Cut Threshold, plus `5`/`15`-frame face scan options.
+- [x] **5.4: Richer Local Static Analyzers**
+  - Visual Highlight Windowing, Farneback optical-flow `fluidity_score`, `contrast_score`, `saturation_score`, `dramatism_score`, `color_mood`, `visual_mood`, MediaPipe 8 facial expressions + `emotion_scores`, and `librosa` HPSS `vocal_energy`/`percussive_energy`/`bass_energy`/`spectral_brightness`/`audio_mood`.
+- [x] **5.5: Manual User Annotations & Millisecond Audio Cues**
+  - `AnnotationPanel` (`Tags & Cues`) and `WaveformVisualizer` millisecond audio cue pins for adding `user_tags`, `user_note`, and `audio_notes` (`timestamp_ms`) persisted in `localStorage` and forwarded to the AI Director.
+
+---
+
+## Phase 6: Scoped AI Director & Advanced AI Integration
+- [ ] **6.1: AI Integration Design & Scoped Directing**
+  - Dedicated AI integration architecture (full-timeline vs. localized section re-direction, iterative AI refinement, and annotation-driven pacing).
