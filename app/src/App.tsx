@@ -12,12 +12,16 @@ import {
   Volume2,
   VolumeX,
   Tag,
+  Save,
 } from "lucide-react";
 import type {
   AudioCueNote,
   AudioTrackItem,
   BeatsData,
+  ProjectData,
+  ProjectSummary,
   ScenesCatalog,
+  SegmentShortlist,
   Timeline,
   TimelineCut,
   SceneCut,
@@ -27,6 +31,7 @@ import {
   computeZoomAnchor,
   computeZoomScrollLeft,
   mergeScenesCatalog,
+  slipCut,
   splitCutAtTime,
   type ZoomAnchor,
 } from "./utils/timelineEditor";
@@ -38,6 +43,8 @@ import { MediaLibraryTree } from "./components/MediaLibraryTree";
 import { HighlightsList, type HighlightAnalysisSettings } from "./components/HighlightsList";
 import { ClipHighlightsModal } from "./components/ClipHighlightsModal";
 import { WaveformVisualizer } from "./components/WaveformVisualizer";
+import { CuesTrack } from "./components/CuesTrack";
+import { ShortlistModal } from "./components/ShortlistModal";
 import { TimelineTrack } from "./components/TimelineTrack";
 import { VideoPreview } from "./components/VideoPreview";
 import { AnnotationPanel } from "./components/AnnotationPanel";
@@ -135,6 +142,141 @@ export default function App() {
     minWindowDuration: 2.0,
   });
   const [clipHighlightsTarget, setClipHighlightsTarget] = useState<string | null>(null);
+  const [shortlistResult, setShortlistResult] = useState<SegmentShortlist | null>(null);
+  const [isShortlisting, setIsShortlisting] = useState<boolean>(false);
+  const [shortlistCueId, setShortlistCueId] = useState<string | null>(null);
+  const [isIndexingSemantics, setIsIndexingSemantics] = useState<boolean>(false);
+
+  // On-disk Project Persistence
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [activeProjectName, setActiveProjectName] = useState<string>("Default Project");
+  const [isSavingProject, setIsSavingProject] = useState<boolean>(false);
+  const [showNewProjectInput, setShowNewProjectInput] = useState<boolean>(false);
+  const [newProjectName, setNewProjectName] = useState<string>("");
+  const skipNextAutoSaveRef = useRef<boolean>(true);
+
+  const applyLoadedProject = useCallback((proj: ProjectData) => {
+    skipNextAutoSaveRef.current = true;
+    engineClient.setActiveProjectId(proj.id);
+    setActiveProjectId(proj.id);
+    setActiveProjectName(proj.name);
+    try {
+      localStorage.setItem("amv_maker_active_project_id", proj.id);
+    } catch {
+      // ignore storage errors
+    }
+    setBeats(proj.beats ?? null);
+    setScenes(proj.scenes ?? null);
+    setTimeline(proj.timeline ?? null);
+    if (proj.user_prompt !== undefined) {
+      setPrompt(proj.user_prompt);
+    }
+    if (proj.audio_file) {
+      setAudioFile(proj.audio_file);
+    } else if (proj.timeline?.target_audio) {
+      setAudioFile(proj.timeline.target_audio);
+    } else {
+      setAudioFile(null);
+    }
+    setPreviewScene(null);
+    setSelectedCutIndex(null);
+  }, []);
+
+  const refreshProjectList = useCallback(async () => {
+    const list = await engineClient.listProjects();
+    setProjects(list);
+    return list;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const list = await engineClient.listProjects();
+      if (cancelled) return;
+      setProjects(list);
+      let savedId: string | null = null;
+      try {
+        savedId = localStorage.getItem("amv_maker_active_project_id");
+      } catch {
+        // ignore
+      }
+      const targetId =
+        (savedId && list.some((p) => p.id === savedId) ? savedId : null) ||
+        (list.length > 0 ? list[0].id : null);
+
+      if (targetId) {
+        const loaded = await engineClient.loadProject(targetId);
+        if (!cancelled && loaded) {
+          applyLoadedProject(loaded);
+        }
+      } else {
+        const created = await engineClient.createProject("Default Project");
+        if (!cancelled && created) {
+          applyLoadedProject(created);
+          await refreshProjectList();
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyLoadedProject, refreshProjectList]);
+
+  const handleSaveProjectNow = useCallback(async () => {
+    if (!activeProjectId) return;
+    setIsSavingProject(true);
+    try {
+      await engineClient.saveProject({
+        id: activeProjectId,
+        name: activeProjectName,
+        audio_file: audioFile,
+        user_prompt: prompt,
+        audio_notes: beats?.audio_notes || [],
+        beats,
+        scenes,
+        timeline,
+      });
+      await refreshProjectList();
+    } finally {
+      setIsSavingProject(false);
+    }
+  }, [activeProjectId, activeProjectName, audioFile, prompt, beats, scenes, timeline, refreshProjectList]);
+
+  // Debounced auto-save to projects/<id>/ whenever project state changes
+  useEffect(() => {
+    if (!activeProjectId) return;
+    if (skipNextAutoSaveRef.current) {
+      skipNextAutoSaveRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void handleSaveProjectNow();
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [activeProjectId, beats, scenes, timeline, prompt, audioFile, handleSaveProjectNow]);
+
+  const handleSelectProject = async (id: string) => {
+    if (!id || id === activeProjectId) return;
+    await handleSaveProjectNow();
+    const loaded = await engineClient.loadProject(id);
+    if (loaded) {
+      applyLoadedProject(loaded);
+    }
+  };
+
+  const handleCreateNewProject = async () => {
+    const trimmed = newProjectName.trim();
+    if (!trimmed) return;
+    await handleSaveProjectNow();
+    const created = await engineClient.createProject(trimmed);
+    if (created) {
+      applyLoadedProject(created);
+      await refreshProjectList();
+      setNewProjectName("");
+      setShowNewProjectInput(false);
+    }
+  };
 
   // Playback & Scrubber state
   const [currentTime, setCurrentTime] = useState<number>(0);
@@ -409,31 +551,62 @@ export default function App() {
   };
 
   const updateAudioNotes = (updater: (notes: AudioCueNote[]) => AudioCueNote[]) => {
-    setBeats((prev) => {
-      if (!prev) return prev;
-      const nextNotes = updater(prev.audio_notes || []);
-      setSavedAnnotations((sa) => ({ ...sa, audioNotes: nextNotes }));
-      setAudioTracks((tracks) =>
-        tracks.map((t) =>
-          t.id === activeAudioTrackId && t.beats
-            ? { ...t, beats: { ...t.beats, audio_notes: nextNotes } }
-            : t
-        )
-      );
-      return { ...prev, audio_notes: nextNotes };
-    });
+    const currentNotes = beats?.audio_notes ?? savedAnnotations.audioNotes;
+    const nextNotes = updater(currentNotes);
+    setSavedAnnotations((sa) => ({ ...sa, audioNotes: nextNotes }));
+    setBeats((prev) => (prev ? { ...prev, audio_notes: nextNotes } : prev));
+    setAudioTracks((tracks) =>
+      tracks.map((t) =>
+        t.id === activeAudioTrackId && t.beats
+          ? { ...t, beats: { ...t.beats, audio_notes: nextNotes } }
+          : t
+      )
+    );
   };
 
   const handleAddAudioNote = (note: AudioCueNote) => {
     updateAudioNotes((notes) => [...notes, note]);
   };
 
-  const handleUpdateAudioNote = (updated: AudioCueNote) => {
-    updateAudioNotes((notes) => notes.map((n) => (n.id === updated.id ? updated : n)));
-  };
-
   const handleDeleteAudioNote = (id: string) => {
     updateAudioNotes((notes) => notes.filter((n) => n.id !== id));
+  };
+
+  const handlePatchAudioNote = (cueId: string, patch: Partial<AudioCueNote>) => {
+    updateAudioNotes((notes) =>
+      notes.map((n) => (n.id === cueId ? { ...n, ...patch } : n))
+    );
+  };
+
+  const handleShortlistSegment = async (
+    startMs: number,
+    endMs: number,
+    cue?: AudioCueNote
+  ) => {
+    if (!beats || !scenes) return;
+    setShortlistCueId(cue?.id || null);
+    setShortlistResult(null);
+    setIsShortlisting(true);
+    try {
+      const res = await engineClient.shortlistClips(beats, scenes, startMs, endMs, cue, 8);
+      setShortlistResult(res);
+    } finally {
+      setIsShortlisting(false);
+    }
+  };
+
+  const handleTogglePinScene = (sceneId: number) => {
+    if (!shortlistCueId) return;
+    updateAudioNotes((notes) =>
+      notes.map((n) => {
+        if (n.id !== shortlistCueId) return n;
+        const existing = n.pinned_scene_ids || [];
+        const nextPinned = existing.includes(sceneId)
+          ? existing.filter((id) => id !== sceneId)
+          : [...existing, sceneId];
+        return { ...n, pinned_scene_ids: nextPinned };
+      })
+    );
   };
 
   // Manual Timeline Setup: Append a highlight, photo, or raw video onto the timeline
@@ -691,10 +864,30 @@ export default function App() {
         setPreviewScene(null);
       } else if (e.code === "ArrowLeft") {
         e.preventDefault();
-        handleSeek(Math.max(0, currentTime - (e.shiftKey ? 5.0 : 0.5)));
+        if (e.altKey && timeline && selectedCutIndex !== null && timeline.cuts[selectedCutIndex]) {
+          const target = timeline.cuts[selectedCutIndex];
+          const step = e.shiftKey ? -0.1 : -0.033;
+          handleUpdateTimelineCuts(
+            slipCut(timeline.cuts, selectedCutIndex, step, {
+              maxSourceDuration: sourceDurations[target.source_file],
+            })
+          );
+        } else {
+          handleSeek(Math.max(0, currentTime - (e.shiftKey ? 5.0 : 0.5)));
+        }
       } else if (e.code === "ArrowRight") {
         e.preventDefault();
-        handleSeek(Math.min(duration, currentTime + (e.shiftKey ? 5.0 : 0.5)));
+        if (e.altKey && timeline && selectedCutIndex !== null && timeline.cuts[selectedCutIndex]) {
+          const target = timeline.cuts[selectedCutIndex];
+          const step = e.shiftKey ? 0.1 : 0.033;
+          handleUpdateTimelineCuts(
+            slipCut(timeline.cuts, selectedCutIndex, step, {
+              maxSourceDuration: sourceDurations[target.source_file],
+            })
+          );
+        } else {
+          handleSeek(Math.min(duration, currentTime + (e.shiftKey ? 5.0 : 0.5)));
+        }
       } else if (e.key === "=" || e.key === "+") {
         e.preventDefault();
         setTimelineZoom((z) => Math.min(8.0, Number((z + 0.5).toFixed(2))));
@@ -717,7 +910,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentTime, duration, playbackRate, isPlaying, timeline, selectedCutIndex]);
+  }, [currentTime, duration, playbackRate, isPlaying, timeline, selectedCutIndex, sourceDurations]);
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100 select-none overflow-hidden">
@@ -735,16 +928,91 @@ export default function App() {
           </div>
         </div>
 
-        {/* Runtime Environment Badge */}
-        <div className="flex items-center gap-2 text-xs font-mono px-3 py-1 rounded-full bg-slate-950/70 border border-slate-800">
-          <div
-            className={`w-2 h-2 rounded-full ${
-              isNativeTauri ? "bg-emerald-400 animate-pulse" : "bg-sky-400"
-            }`}
-          />
-          <span className="text-slate-300">
-            {isNativeTauri ? "Tauri v2 Desktop Shell" : "Browser Dev Mode (Simulated IPC)"}
-          </span>
+        {/* Project Switcher & Runtime Badge */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800">
+            <FolderOpen className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            {showNewProjectInput ? (
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleCreateNewProject();
+                    if (e.key === "Escape") setShowNewProjectInput(false);
+                  }}
+                  placeholder="Project name..."
+                  autoFocus
+                  className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-200 w-32 focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleCreateNewProject()}
+                  className="px-1.5 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-semibold"
+                >
+                  Create
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNewProjectInput(false)}
+                  className="px-1 text-slate-400 hover:text-slate-200 text-[10px]"
+                >
+                  ×
+                </button>
+              </div>
+            ) : (
+              <>
+                <select
+                  aria-label="Active project"
+                  value={activeProjectId || ""}
+                  onChange={(e) => void handleSelectProject(e.target.value)}
+                  className="bg-transparent text-slate-200 font-medium focus:outline-none max-w-[160px] truncate cursor-pointer"
+                >
+                  {projects.length === 0 && (
+                    <option value={activeProjectId || ""}>{activeProjectName}</option>
+                  )}
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id} className="bg-slate-900 text-slate-200">
+                      {p.name} ({p.scene_count})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowNewProjectInput(true)}
+                  title="Create new project on disk"
+                  className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveProjectNow()}
+                  disabled={!activeProjectId || isSavingProject}
+                  title="Save project to disk now"
+                  className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-emerald-400 disabled:opacity-40"
+                >
+                  {isSavingProject ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                  ) : (
+                    <Save className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="hidden xl:flex items-center gap-2 text-xs font-mono px-3 py-1 rounded-full bg-slate-950/70 border border-slate-800">
+            <div
+              className={`w-2 h-2 rounded-full ${
+                isNativeTauri ? "bg-emerald-400 animate-pulse" : "bg-sky-400"
+              }`}
+            />
+            <span className="text-slate-300">
+              {isNativeTauri ? "Tauri v2" : "Dev Server"}
+            </span>
+          </div>
         </div>
 
         {/* Export Action Buttons */}
@@ -917,6 +1185,25 @@ export default function App() {
                 onChangeHighlightSettings={setHighlightSettings}
                 onReanalyzeHighlights={handleReanalyzeAllHighlights}
                 isReanalyzing={isAnalyzingScenes}
+                isIndexingSemantics={isIndexingSemantics}
+                onIndexSemantics={async () => {
+                  if (!scenes || isIndexingSemantics) return;
+                  setIsIndexingSemantics(true);
+                  try {
+                    const updated = await engineClient.indexSemantics(scenes);
+                    setScenes(updated);
+                  } finally {
+                    setIsIndexingSemantics(false);
+                  }
+                }}
+                onSearchClips={async (query) => {
+                  if (!scenes) return [];
+                  return engineClient.searchClips(scenes, query);
+                }}
+                onSemanticSearch={async (q) => {
+                  if (!scenes) return [];
+                  return engineClient.semanticSearch(scenes, q, 30);
+                }}
               />
             </div>
           )}
@@ -967,14 +1254,8 @@ export default function App() {
                       : null
                   }
                   selectedCutIndex={selectedCutIndex}
-                  beatsData={beats}
-                  currentTime={currentTime}
                   onUpdateSceneAnnotation={handleUpdateSceneAnnotation}
                   onUpdateCutAnnotation={handleUpdateCutAnnotation}
-                  onAddAudioNote={handleAddAudioNote}
-                  onUpdateAudioNote={handleUpdateAudioNote}
-                  onDeleteAudioNote={handleDeleteAudioNote}
-                  onSeekAudio={handleSeek}
                 />
               </div>
             )}
@@ -989,13 +1270,12 @@ export default function App() {
             }`}
           />
 
-          {/* Bottom Docked Multi-Track Timeline Drawer (Resizable + Shift+Wheel Zoom) */}
+          {/* Bottom Docked Multi-Track Timeline Drawer (Resizable + Cmd/Ctrl+Wheel Zoom + Alt+Wheel Slip + Shift+Wheel Pan) */}
           <div
             style={{ height: timelineHeight }}
             onWheel={(e) => {
-              if (e.shiftKey) {
+              if ((e.metaKey || e.ctrlKey) && !e.altKey) {
                 e.preventDefault();
-                // On macOS, Shift+Wheel translates vertical scroll into deltaX
                 const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
                 if (delta !== 0) {
                   const step = delta < 0 ? 0.25 : -0.25;
@@ -1013,6 +1293,28 @@ export default function App() {
                     pendingZoomAnchorRef.current = next !== z ? anchor : null;
                     return next;
                   });
+                }
+              } else if (e.altKey && !e.metaKey && !e.ctrlKey) {
+                if (timeline && selectedCutIndex !== null && timeline.cuts[selectedCutIndex]) {
+                  e.preventDefault();
+                  const rawDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+                  if (rawDelta !== 0) {
+                    const target = timeline.cuts[selectedCutIndex];
+                    // Scroll down (rawDelta > 0) shifts source window backwards; scroll up shifts forwards
+                    const baseStep = e.shiftKey ? 0.1 : Math.abs(rawDelta) < 20 ? 0.01 : 0.033;
+                    const deltaSec = rawDelta > 0 ? -baseStep : baseStep;
+                    handleUpdateTimelineCuts(
+                      slipCut(timeline.cuts, selectedCutIndex, deltaSec, {
+                        maxSourceDuration: sourceDurations[target.source_file],
+                      })
+                    );
+                  }
+                }
+              } else if (e.shiftKey && timelineScrollRef.current) {
+                // Ensure Shift+Wheel scrolls horizontally across all platforms
+                if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && e.deltaY !== 0) {
+                  e.preventDefault();
+                  timelineScrollRef.current.scrollLeft += e.deltaY;
                 }
               }
             }}
@@ -1091,6 +1393,19 @@ export default function App() {
                 style={{ width: `${timelineZoom * 100}%`, minWidth: "100%" }}
                 className="flex flex-col gap-2"
               >
+                {/* Dedicated Cues & Segment Notes Lane */}
+                <CuesTrack
+                  beatsData={beats}
+                  audioNotes={beats?.audio_notes ?? savedAnnotations.audioNotes}
+                  duration={duration}
+                  currentTime={currentTime}
+                  onSeek={handleSeek}
+                  onAddCue={handleAddAudioNote}
+                  onUpdateCue={handlePatchAudioNote}
+                  onDeleteCue={handleDeleteAudioNote}
+                  onShortlistSegment={handleShortlistSegment}
+                />
+
                 {/* Multi-Track Audio Waveforms (A1, A2...) */}
                 {audioTracks.length > 0 ? (
                   audioTracks.map((aTrack, aIdx) => {
@@ -1193,6 +1508,30 @@ export default function App() {
         isProcessing={isAnalyzingScenes}
         onClose={() => setClipHighlightsTarget(null)}
         onApply={handleRegenerateVideoHighlights}
+      />
+
+      {/* AI Segment Clip Shortlist Modal */}
+      <ShortlistModal
+        shortlist={shortlistResult}
+        isLoading={isShortlisting}
+        catalog={scenes}
+        pinnedSceneIds={
+          beats?.audio_notes?.find((n) => n.id === shortlistCueId)?.pinned_scene_ids || []
+        }
+        onClose={() => {
+          setShortlistResult(null);
+          setShortlistCueId(null);
+        }}
+        onPreviewScene={(scene) => {
+          setSelectedCutIndex(null);
+          setPreviewScene(scene);
+        }}
+        onAddSceneToTimeline={(scene, atTimeSec) => {
+          handleDropSceneOnTimeline(scene, atTimeSec, activeVideoTrack);
+          setShortlistResult(null);
+          setShortlistCueId(null);
+        }}
+        onTogglePinScene={shortlistCueId ? handleTogglePinScene : undefined}
       />
 
       {/* Export Dialog Modal */}

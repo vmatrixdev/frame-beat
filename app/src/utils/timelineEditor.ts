@@ -230,6 +230,56 @@ export function splitCutAtTime(
 }
 
 /**
+ * Shifts a video clip's source_in and source_out window by deltaSec without
+ * changing its timeline_start or timeline_end (an NLE "slip edit").
+ * Clamped to [0, maxSourceDuration] while preserving the source window span.
+ */
+export function slipCut(
+  cuts: TimelineCut[],
+  cutIndex: number,
+  deltaSec: number,
+  options?: {
+    isStillImage?: boolean;
+    maxSourceDuration?: number;
+  }
+): TimelineCut[] {
+  const target = cuts[cutIndex];
+  if (!target || deltaSec === 0) return cuts;
+  if (options?.isStillImage || target.source_out <= target.source_in) {
+    return cuts;
+  }
+
+  const span = target.source_out - target.source_in;
+  let nextIn = target.source_in + deltaSec;
+  if (nextIn < 0) {
+    nextIn = 0;
+  }
+  if (
+    options?.maxSourceDuration !== undefined &&
+    options.maxSourceDuration >= span &&
+    nextIn + span > options.maxSourceDuration
+  ) {
+    nextIn = options.maxSourceDuration - span;
+  }
+
+  const roundedIn = roundMs(nextIn);
+  const roundedOut = roundMs(nextIn + span);
+  if (roundedIn === target.source_in && roundedOut === target.source_out) {
+    return cuts;
+  }
+
+  return cuts.map((cut, i) =>
+    i === cutIndex
+      ? {
+          ...cut,
+          source_in: roundedIn,
+          source_out: roundedOut,
+        }
+      : cut
+  );
+}
+
+/**
  * Cycles the transition type on a cut.
  */
 export function cycleCutTransition(cuts: TimelineCut[], cutIndex: number): TimelineCut[] {
@@ -333,4 +383,12 @@ export function mergeScenesCatalog(
     total_scenes: combined.length,
     scenes: combined,
   };
+}
+
+/**
+ * Normalizes a visual score that may be either 0.0-1.0 or 0.0-100.0 into an integer 0-100 percentage.
+ */
+export function formatMetricPercent(score: number): number {
+  const pct = score <= 1.0 ? score * 100 : score;
+  return Math.round(Math.min(100, Math.max(0, pct)));
 }

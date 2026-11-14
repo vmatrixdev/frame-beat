@@ -306,6 +306,7 @@ def test_classify_blendshapes_expanded_emotions():
         ({"mouthFrownLeft": 0.7, "mouthFrownRight": 0.7, "browInnerUp": 0.5}, "sad / melancholic", "sadness"),
         ({"browInnerUp": 0.6, "mouthStretchLeft": 0.6, "mouthStretchRight": 0.6}, "worried / tense", "worry"),
         ({"browDownLeft": 0.4, "browDownRight": 0.4, "mouthPressLeft": 0.5, "mouthPressRight": 0.5}, "focused / determined", None),
+        ({"browDownLeft": 0.65, "browDownRight": 0.65, "noseSneerLeft": 0.3, "noseSneerRight": 0.3, "mouthSmileLeft": 0.4, "mouthSmileRight": 0.4}, "angry / intense", "anger"),
         ({}, "calm / neutral", "neutral"),
     ]
     expected_keys = {"joy", "surprise", "anger", "sadness", "worry", "neutral"}
@@ -321,3 +322,103 @@ def test_classify_blendshapes_expanded_emotions():
         elif dominant_key is not None:
             non_neutral_max = max(scores[k] for k in expected_keys if k != "neutral")
             assert scores[dominant_key] == non_neutral_max and non_neutral_max > 0.35
+
+
+def test_semantic_indexer_cache_and_search(tmp_path: Path, monkeypatch):
+    """Verifies SigLIP semantic_indexer caching, vibe scoring, and search ranking with mocked embeddings."""
+    import numpy as np
+    from PIL import Image
+    from engine.models import SceneCut, ScenesCatalog
+    import engine.semantic_indexer as si
+
+    thumb0 = tmp_path / "thumb0.jpg"
+    thumb1 = tmp_path / "thumb1.jpg"
+    Image.new("RGB", (64, 64), color=(255, 80, 30)).save(thumb0)
+    Image.new("RGB", (64, 64), color=(30, 180, 255)).save(thumb1)
+
+    catalog = ScenesCatalog(
+        source_files=["/media/atla.mp4"],
+        total_scenes=2,
+        scenes=[
+            SceneCut(
+                scene_id=0,
+                source_file="/media/atla.mp4",
+                start_time=0.0,
+                end_time=2.0,
+                duration=2.0,
+                keyframe_path=str(thumb0),
+            ),
+            SceneCut(
+                scene_id=1,
+                source_file="/media/atla.mp4",
+                start_time=2.0,
+                end_time=4.0,
+                duration=2.0,
+                keyframe_path=str(thumb1),
+            ),
+        ],
+    )
+
+    monkeypatch.setattr(si, "is_siglip_available", lambda: True)
+    # Two orthogonal unit vectors in R^4: [1, 0, 0, 0] for thumb0, [0, 1, 0, 0] for thumb1
+    monkeypatch.setattr(
+        si,
+        "encode_images",
+        lambda paths, **kwargs: np.array([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]], dtype=np.float32),
+    )
+
+    def fake_encode_texts(texts, **kwargs):
+        out = []
+        for t in texts:
+            tl = t.lower()
+            if "angry" in tl or "intense" in tl:
+                out.append([1.0, 0.0, 0.0, 0.0])
+            elif "cheeky" in tl or "silly" in tl:
+                out.append([0.0, 1.0, 0.0, 0.0])
+            else:
+                out.append([0.0, 0.0, 1.0, 0.0])
+        return np.array(out, dtype=np.float32)
+
+    monkeypatch.setattr(si, "encode_texts", fake_encode_texts)
+
+    indexed = si.index_catalog_semantics(catalog, cache_dir=tmp_path)
+    assert "angry / intense" in indexed.scenes[0].semantic_tags
+    assert indexed.scenes[0].dominant_expression == "angry / intense"
+    assert "cheeky / playful" in indexed.scenes[1].semantic_tags
+
+    hits = si.semantic_search_scenes(indexed, "silly goofy reaction", cache_dir=tmp_path, top_k=2)
+    assert hits[0][0] == 1
+    assert hits[0][1] > hits[1][1]
+
+    # Multi-frame in-memory BatchSemanticEmbedder stores #0..#K-1 and uses max similarity
+    frames = [np.zeros((32, 32, 3), dtype=np.uint8) for _ in range(3)]
+    monkeypatch.setattr(
+        si,
+        "encode_bgr_frames",
+        lambda fs, **kwargs: np.array(
+            [[0.0, 0.0, 0.0, 1.0], [1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+            dtype=np.float32,
+        ),
+    )
+    embedder = si.BatchSemanticEmbedder(cache_dir=tmp_path)
+    tags, scores, expr = embedder.embed_scene_frames("/media/atla.mp4|10.000|15.000", frames)
+    embedder.flush()
+    assert "angry / intense" in tags
+    assert expr == "angry / intense"
+    assert scores is not None
+
+    multi_cat = ScenesCatalog(
+        source_files=["/media/atla.mp4"],
+        total_scenes=1,
+        scenes=[
+            SceneCut(
+                scene_id=0,
+                source_file="/media/atla.mp4",
+                start_time=10.0,
+                end_time=15.0,
+                duration=5.0,
+            )
+        ],
+    )
+    multi_hits = si.semantic_search_scenes(multi_cat, "angry intense scowl", cache_dir=tmp_path, top_k=1)
+    assert multi_hits == [(0, 1.0)]

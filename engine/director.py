@@ -11,7 +11,16 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-from engine.models import BeatsData, ScenesCatalog, Timeline, TimelineCut
+from engine.clip_search import build_search_tool_functions
+from engine.models import (
+    AudioCueNote,
+    BeatsData,
+    ScenesCatalog,
+    SegmentShortlist,
+    ShortlistCandidate,
+    Timeline,
+    TimelineCut,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -401,3 +410,243 @@ def direct_amv(
 
 # General alias
 direct_timeline = direct_amv
+
+
+def _shortlist_deterministic(
+    beats: BeatsData,
+    catalog: ScenesCatalog,
+    start_ms: int,
+    end_ms: int,
+    cue_note: Optional[AudioCueNote] = None,
+    limit: int = 8,
+) -> SegmentShortlist:
+    """Offline heuristic shortlister ranking analyzed clips for an audio segment."""
+    start_sec = max(0.0, start_ms / 1000.0)
+    end_sec = max(start_sec + 0.1, end_ms / 1000.0)
+
+    overlapping_segments = [
+        seg for seg in beats.energy_segments if seg.end > start_sec and seg.start < end_sec
+    ]
+    dominant_level = overlapping_segments[0].level if overlapping_segments else "medium"
+    dominant_audio_mood = next(
+        (s.audio_mood for s in overlapping_segments if s.audio_mood), None
+    )
+    high_energy = dominant_level in {"high", "drop", "build"}
+
+    pinned_ids = set(cue_note.pinned_scene_ids) if cue_note else set()
+    pinned_ranges = cue_note.pinned_ranges if cue_note else []
+    note_tokens = set()
+    if cue_note:
+        raw_text = f"{cue_note.note} {' '.join(cue_note.tags)}"
+        note_tokens = {
+            tok.strip().lower()
+            for tok in raw_text.replace(",", " ").split()
+            if len(tok.strip()) >= 2
+        }
+
+    scored: List[tuple[float, ShortlistCandidate]] = []
+    for s in catalog.scenes:
+        score = 0.2
+        reasons: List[str] = []
+        criteria: List[str] = []
+
+        if s.scene_id in pinned_ids:
+            score += 0.55
+            criteria.append("pinned_scene")
+            reasons.append("Pinned by editor")
+
+        for pr in pinned_ranges:
+            if (
+                Path(pr.source_file).name == Path(s.source_file).name
+                and s.end_time > pr.start_sec
+                and s.start_time < pr.end_sec
+            ):
+                score += 0.45
+                criteria.append("pinned_range")
+                reasons.append("Matches pinned video time range")
+                break
+
+        if note_tokens:
+            haystack = " ".join(
+                filter(
+                    None,
+                    [
+                        Path(s.source_file).name,
+                        s.user_note or "",
+                        " ".join(s.user_tags),
+                        s.visual_mood or "",
+                        s.color_mood or "",
+                        s.dominant_expression or "",
+                    ],
+                )
+            ).lower()
+            matched = [tok for tok in sorted(note_tokens) if tok in haystack]
+            if matched:
+                score += min(0.35, 0.12 * len(matched))
+                criteria.extend(matched[:4])
+                reasons.append(f"Matches notes/tags ({', '.join(matched[:3])})")
+
+        if high_energy:
+            if s.visual_mood in {"energetic_action", "dramatic_intense"}:
+                score += 0.2
+                criteria.append(s.visual_mood)
+                reasons.append(f"High-energy {s.visual_mood}")
+            if (s.fluidity_score or 0.0) >= 55.0:
+                score += 0.1
+                criteria.append("high_fluidity")
+            if (s.dramatism_score or 0.0) >= 55.0:
+                score += 0.1
+                criteria.append("high_dramatism")
+        else:
+            if s.visual_mood in {"serene_scenic", "warm_intimate", "melancholic_muted", "joyful_bright"}:
+                score += 0.2
+                criteria.append(s.visual_mood)
+                reasons.append(f"Mood match ({s.visual_mood})")
+            if s.has_faces and (s.smile_score or 0.0) >= 0.4:
+                score += 0.1
+                criteria.append("expressive_face")
+
+        if not reasons:
+            mood_label = s.visual_mood or "balanced"
+            reasons.append(f"{mood_label} clip ({s.duration:.1f}s)")
+
+        clamped = round(min(1.0, score), 3)
+        scored.append(
+            (
+                clamped,
+                ShortlistCandidate(
+                    scene_id=s.scene_id,
+                    source_file=s.source_file,
+                    start_time=s.start_time,
+                    end_time=s.end_time,
+                    score=clamped,
+                    reason="; ".join(reasons),
+                    matched_criteria=list(dict.fromkeys(criteria)),
+                ),
+            )
+        )
+
+    scored.sort(key=lambda item: (-item[0], item[1].scene_id))
+    summary_parts = [f"{start_sec:.2f}s–{end_sec:.2f}s", f"energy={dominant_level}"]
+    if dominant_audio_mood:
+        summary_parts.append(f"mood={dominant_audio_mood}")
+    if cue_note and cue_note.note:
+        summary_parts.append(f'note="{cue_note.note[:80]}"')
+
+    return SegmentShortlist(
+        start_ms=start_ms,
+        end_ms=end_ms,
+        segment_summary=" • ".join(summary_parts),
+        candidates=[c for _, c in scored[: max(1, limit)]],
+    )
+
+
+def shortlist_clips_for_segment(
+    beats: BeatsData,
+    catalog: ScenesCatalog,
+    start_ms: int,
+    end_ms: int,
+    cue_note: Optional[AudioCueNote] = None,
+    limit: int = 8,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    force_fallback: bool = False,
+) -> SegmentShortlist:
+    """
+    Use Gemini with static search tool-calling over `catalog` to shortlist
+    the best candidate clips for `[start_ms, end_ms]`, with deterministic fallback.
+    """
+    load_dotenv_if_present()
+    key = api_key or os.environ.get("GEMINI_API_KEY")
+    resolved_model = model or os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
+
+    if force_fallback or not key or not catalog.scenes:
+        return _shortlist_deterministic(
+            beats=beats,
+            catalog=catalog,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            cue_note=cue_note,
+            limit=limit,
+        )
+
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=key)
+        start_sec = max(0.0, start_ms / 1000.0)
+        end_sec = max(start_sec + 0.1, end_ms / 1000.0)
+        overlapping_segments = [
+            seg.model_dump()
+            for seg in beats.energy_segments
+            if seg.end > start_sec and seg.start < end_sec
+        ]
+
+        search_tools = build_search_tool_functions(catalog)
+        research_prompt = (
+            "You are an AI assistant helping a human video editor shortlist candidate clips for a specific "
+            f"audio segment [{start_sec:.2f}s - {end_sec:.2f}s] ({start_ms}ms - {end_ms}ms).\n"
+            "Use the provided static search tools (`tool_list_source_summaries`, `tool_search_scenes`, "
+            "`tool_get_scene_details`) to explore the indexed clip library and find the best matching clips.\n"
+            f"Audio energy segments in range: {json.dumps(overlapping_segments)}\n"
+            f"Editor cue/segment note: {json.dumps(cue_note.model_dump() if cue_note else None)}\n"
+            f"Return the top {limit} candidate scene_ids with concise reasons why each fits."
+        )
+
+        # Step 1: Tool-calling research pass (Gemini calls local search functions)
+        tool_response = client.models.generate_content(
+            model=resolved_model,
+            contents=research_prompt,
+            config=types.GenerateContentConfig(
+                tools=search_tools,
+                temperature=0.3,
+            ),
+        )
+
+        # Step 2: Enforce structured SegmentShortlist JSON from the research findings
+        structure_prompt = (
+            f"Convert these shortlisted clip findings for [{start_ms}ms - {end_ms}ms] into the exact "
+            f"SegmentShortlist JSON schema (max {limit} candidates, scores 0.0-1.0, exact scene_id/source_file/start_time/end_time from the catalog):\n\n"
+            f"{tool_response.text or ''}"
+        )
+        structured = client.models.generate_content(
+            model=resolved_model,
+            contents=structure_prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=SegmentShortlist,
+                temperature=0.2,
+            ),
+        )
+        shortlist = SegmentShortlist.model_validate(json.loads(structured.text))
+        shortlist.start_ms = start_ms
+        shortlist.end_ms = end_ms
+
+        # Ensure any invalid scene_ids hallucinated are filtered against catalog
+        valid_by_id = {s.scene_id: s for s in catalog.scenes}
+        cleaned: List[ShortlistCandidate] = []
+        for cand in shortlist.candidates:
+            src_scene = valid_by_id.get(cand.scene_id)
+            if not src_scene:
+                continue
+            cand.source_file = src_scene.source_file
+            cand.start_time = src_scene.start_time
+            cand.end_time = src_scene.end_time
+            cleaned.append(cand)
+        if not cleaned:
+            return _shortlist_deterministic(
+                beats=beats, catalog=catalog, start_ms=start_ms, end_ms=end_ms, cue_note=cue_note, limit=limit
+            )
+        shortlist.candidates = cleaned[:limit]
+        return shortlist
+    except Exception as e:
+        logger.warning(f"Gemini shortlist call failed ({e}); falling back to deterministic shortlister.")
+        return _shortlist_deterministic(
+            beats=beats,
+            catalog=catalog,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            cue_note=cue_note,
+            limit=limit,
+        )

@@ -41,8 +41,12 @@ src-tauri/target/
 
 # Cache & Local Media
 cache/
+projects/
 export/
 demo_assets/
+test-results/
+playwright-report/
+.DS_Store
 *.mp4
 *.mkv
 *.wav

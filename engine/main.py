@@ -25,9 +25,9 @@ from engine.visual_analyzer import (
     analyze_single_segment,
     analyze_video,
 )
-from engine.director import direct_amv, load_dotenv_if_present
+from engine.director import direct_amv, load_dotenv_if_present, shortlist_clips_for_segment
 from engine.stitcher import render_ffmpeg, export_project, RenderProgress
-from engine.models import BeatsData, ScenesCatalog, Timeline
+from engine.models import AudioCueNote, BeatsData, ScenesCatalog, Timeline
 
 # Auto-load environment variables from .env if present
 load_dotenv_if_present()
@@ -65,6 +65,8 @@ def analyze_scenes(
     max_scene_duration: float = typer.Option(5.5, "--max-scene-duration", help="Subdivide scenes longer than this (seconds)"),
     target_window_duration: float = typer.Option(3.5, "--target-window-duration", help="Target highlight window duration (seconds)"),
     min_window_duration: float = typer.Option(2.0, "--min-window-duration", help="Minimum highlight window duration (seconds)"),
+    embed_semantics: bool = typer.Option(True, "--embed-semantics/--no-embed-semantics", help="Embed sampled frames in memory with SigLIP when available"),
+    cache_dir: Optional[Path] = typer.Option(None, "--cache-dir", help="Cache directory for SigLIP embeddings"),
     stream: bool = typer.Option(False, "--stream", help="Emit progressive NDJSON updates per file"),
 ):
     """Detect visual scene cuts and extract keyframes and metrics."""
@@ -96,6 +98,8 @@ def analyze_scenes(
                         max_scene_duration=max_scene_duration,
                         target_window_duration=target_window_duration,
                         min_window_duration=min_window_duration,
+                        embed_semantics=embed_semantics,
+                        semantic_cache_dir=cache_dir,
                     )
                 for c in cuts:
                     c.scene_id = global_scene_id
@@ -134,6 +138,8 @@ def analyze_scenes(
                     max_scene_duration=max_scene_duration,
                     target_window_duration=target_window_duration,
                     min_window_duration=min_window_duration,
+                    embed_semantics=embed_semantics,
+                    semantic_cache_dir=cache_dir,
                 )
             catalog = ScenesCatalog(
                 source_files=[str(video_dir.resolve())],
@@ -148,6 +154,8 @@ def analyze_scenes(
                 max_scene_duration=max_scene_duration,
                 target_window_duration=target_window_duration,
                 min_window_duration=min_window_duration,
+                embed_semantics=embed_semantics,
+                semantic_cache_dir=cache_dir,
             )
         result_json = catalog.model_dump_json(indent=2)
         if output:
@@ -347,6 +355,132 @@ def export_project_cmd(
             typer.echo(json.dumps({"type": "error", "status": "failed", "error": str(err)}))
         else:
             console.print(f"[bold red]Export failed: {err}[/bold red]", file=sys.stderr)
+        raise typer.Exit(code=1)
+
+
+@app.command(name="shortlist-clips")
+def shortlist_clips(
+    beats_file: Path = typer.Option(..., "--beats", help="Path to beats.json"),
+    scenes_file: Path = typer.Option(..., "--scenes", help="Path to scenes.json"),
+    start_ms: int = typer.Option(..., "--start-ms", help="Segment start timestamp in milliseconds"),
+    end_ms: int = typer.Option(..., "--end-ms", help="Segment end timestamp in milliseconds"),
+    cue_note_file: Optional[Path] = typer.Option(None, "--cue-note-file", help="Optional JSON file containing AudioCueNote"),
+    limit: int = typer.Option(8, "--limit", help="Maximum number of shortlisted candidates"),
+    offline: bool = typer.Option(False, "--offline", help="Force deterministic offline shortlister"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Path to write shortlist JSON"),
+):
+    """Shortlist best-matching indexed clips for a specific audio segment [start_ms, end_ms]."""
+    try:
+        beats = BeatsData.model_validate_json(beats_file.read_text(encoding="utf-8"))
+        catalog = ScenesCatalog.model_validate_json(scenes_file.read_text(encoding="utf-8"))
+        cue_note = (
+            AudioCueNote.model_validate_json(cue_note_file.read_text(encoding="utf-8"))
+            if cue_note_file and cue_note_file.exists()
+            else None
+        )
+        shortlist = shortlist_clips_for_segment(
+            beats=beats,
+            catalog=catalog,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            cue_note=cue_note,
+            limit=limit,
+            force_fallback=offline,
+        )
+        result_json = shortlist.model_dump_json(indent=2)
+        if output:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(result_json, encoding="utf-8")
+        else:
+            typer.echo(result_json)
+    except Exception as err:
+        console.print(f"[bold red]Shortlist failed: {err}[/bold red]", file=sys.stderr)
+        raise typer.Exit(code=1)
+
+
+@app.command(name="index-semantics")
+def index_semantics(
+    scenes_file: Path = typer.Option(..., "--scenes", help="Path to scenes.json"),
+    cache_dir: Optional[Path] = typer.Option(None, "--cache-dir", help="Cache directory for SigLIP embeddings"),
+    force: bool = typer.Option(False, "--force", help="Recompute all SigLIP embeddings"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Path to write updated scenes.json"),
+):
+    """Run local SigLIP vision-language indexing on scene keyframes to populate semantic_tags & vibe_scores."""
+    try:
+        from engine.semantic_indexer import index_catalog_semantics
+
+        catalog = ScenesCatalog.model_validate_json(scenes_file.read_text(encoding="utf-8"))
+        updated = index_catalog_semantics(catalog, cache_dir=cache_dir, force_recompute=force)
+        result_json = updated.model_dump_json(indent=2)
+        if output:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(result_json, encoding="utf-8")
+        else:
+            typer.echo(result_json)
+    except Exception as err:
+        console.print(f"[bold red]Semantic indexing failed: {err}[/bold red]", file=sys.stderr)
+        raise typer.Exit(code=1)
+
+
+@app.command(name="semantic-search")
+def semantic_search_cmd(
+    scenes_file: Path = typer.Option(..., "--scenes", help="Path to scenes.json"),
+    query: str = typer.Option(..., "--query", "-q", help="Natural-language vibe/action/expression query"),
+    cache_dir: Optional[Path] = typer.Option(None, "--cache-dir", help="Cache directory for SigLIP embeddings"),
+    top_k: int = typer.Option(20, "--top-k", help="Maximum number of results"),
+):
+    """Search indexed scenes using local SigLIP text-to-image similarity."""
+    try:
+        from engine.semantic_indexer import semantic_search_scenes
+
+        catalog = ScenesCatalog.model_validate_json(scenes_file.read_text(encoding="utf-8"))
+        hits = semantic_search_scenes(catalog, query_text=query, cache_dir=cache_dir, top_k=top_k)
+        typer.echo(
+            json.dumps(
+                {
+                    "query": query,
+                    "results": [{"scene_id": sid, "score": sc} for sid, sc in hits],
+                },
+                indent=2,
+            )
+        )
+    except Exception as err:
+        console.print(f"[bold red]Semantic search failed: {err}[/bold red]", file=sys.stderr)
+        raise typer.Exit(code=1)
+
+
+@app.command(name="search-clips")
+def search_clips_cmd(
+    scenes_file: Path = typer.Option(..., "--scenes", help="Path to scenes.json"),
+    query_file: Optional[Path] = typer.Option(None, "--query-file", help="Path to ClipSearchQuery JSON"),
+    query_text: Optional[str] = typer.Option(None, "--query", "-q", help="Natural-language vibe/text query"),
+    cache_dir: Optional[Path] = typer.Option(None, "--cache-dir", help="Cache directory for SigLIP embeddings"),
+    limit: int = typer.Option(50, "--limit", help="Maximum number of results"),
+):
+    """Unified clip search & filter endpoint shared by the UI and AI agent tool calls."""
+    try:
+        from engine.clip_search import search_scenes_from_query
+        from engine.models import ClipSearchQuery
+
+        catalog = ScenesCatalog.model_validate_json(scenes_file.read_text(encoding="utf-8"))
+        if query_file and query_file.exists():
+            query_obj = ClipSearchQuery.model_validate_json(query_file.read_text(encoding="utf-8"))
+        else:
+            query_obj = ClipSearchQuery(query_text=query_text, limit=limit)
+
+        results = search_scenes_from_query(catalog, query_obj, cache_dir=cache_dir)
+        typer.echo(
+            json.dumps(
+                {
+                    "results": results,
+                    "total_matched": len(results),
+                    "total_catalog": len(catalog.scenes),
+                },
+                indent=2,
+            )
+        )
+    except Exception as err:
+        console.print(f"[bold red]Clip search failed: {err}[/bold red]", file=sys.stderr)
         raise typer.Exit(code=1)
 
 

@@ -4,6 +4,7 @@ import { DropZones } from "../components/DropZones";
 import { MediaLibraryTree } from "../components/MediaLibraryTree";
 import { HighlightsList } from "../components/HighlightsList";
 import { WaveformVisualizer } from "../components/WaveformVisualizer";
+import { CuesTrack } from "../components/CuesTrack";
 import { TimelineTrack } from "../components/TimelineTrack";
 import { VideoPreview, formatTimecode } from "../components/VideoPreview";
 import {
@@ -340,7 +341,7 @@ describe("React UI Components", () => {
         />
       );
 
-      expect(screen.getByText("2 items (1 videos • 1 photos)")).toBeInTheDocument();
+      expect(screen.getByText("2/2")).toBeInTheDocument();
       expect(screen.getByText("#1 • clip1.mp4")).toBeInTheDocument();
       expect(screen.getByText("#2 • photo1.jpg")).toBeInTheDocument();
       expect(screen.getByText("Faces (1)")).toBeInTheDocument();
@@ -408,7 +409,6 @@ describe("React UI Components", () => {
       render(
         <AnnotationPanel
           selectedScene={mockScene}
-          currentTime={2.5}
           onUpdateSceneAnnotation={handleUpdateScene}
         />
       );
@@ -436,15 +436,18 @@ describe("React UI Components", () => {
       });
     });
 
-    it("adds and deletes millisecond-level AudioCueNotes", () => {
+    it("adds, edits, shortlists, and deletes cues in CuesTrack", () => {
       const handleAddCue = vi.fn();
+      const handleUpdateCue = vi.fn();
       const handleDeleteCue = vi.fn();
+      const handleShortlist = vi.fn();
       const beatsWithNotes = {
         ...DEMO_BEATS,
         audio_notes: [
           {
             id: "cue-1",
             timestamp_ms: 4250,
+            end_ms: 8250,
             tags: ["drop"],
             note: "Bass drop",
           },
@@ -452,37 +455,38 @@ describe("React UI Components", () => {
       };
 
       render(
-        <AnnotationPanel
+        <CuesTrack
           beatsData={beatsWithNotes}
+          audioNotes={beatsWithNotes.audio_notes}
+          duration={20}
           currentTime={8.125}
-          defaultTab="audio"
-          onAddAudioNote={handleAddCue}
-          onDeleteAudioNote={handleDeleteCue}
+          onSeek={vi.fn()}
+          onAddCue={handleAddCue}
+          onUpdateCue={handleUpdateCue}
+          onDeleteCue={handleDeleteCue}
+          onShortlistSegment={handleShortlist}
         />
       );
 
-      // Default timestamp input is 8125ms
-      const msInput = screen.getByLabelText("Audio cue timestamp (ms or mm:ss.mmm)");
-      expect(msInput).toHaveValue("8125");
-
-      // Fine-tune to exact ms and add note
-      fireEvent.change(msInput, { target: { value: "00:08.350" } });
-      fireEvent.click(screen.getByText("+ chorus"));
-      fireEvent.change(screen.getByPlaceholderText(/Cue note for AI Director/i), {
-        target: { value: "Flash white cut" },
-      });
-      fireEvent.click(screen.getByText("Add Cue"));
-
+      // Add a 4s segment at current playhead (8125ms..12125ms)
+      fireEvent.click(screen.getByText("+ Segment at Playhead"));
       expect(handleAddCue).toHaveBeenCalledWith(
         expect.objectContaining({
-          timestamp_ms: 8350,
-          tags: ["chorus"],
-          note: "Flash white cut",
+          timestamp_ms: 8125,
+          end_ms: 12125,
         })
       );
 
-      // Delete existing cue
-      fireEvent.click(screen.getByLabelText("Delete audio cue"));
+      // Click existing segment pill to open inline editor
+      fireEvent.click(screen.getByText("Bass drop"));
+      fireEvent.click(screen.getByText("AI Shortlist Clips"));
+      expect(handleShortlist).toHaveBeenCalledWith(
+        4250,
+        8250,
+        expect.objectContaining({ id: "cue-1" })
+      );
+
+      fireEvent.click(screen.getByTitle("Delete cue"));
       expect(handleDeleteCue).toHaveBeenCalledWith("cue-1");
     });
 
@@ -546,7 +550,7 @@ describe("React UI Components", () => {
         />
       );
 
-      expect(screen.getByText("energetic")).toBeInTheDocument();
+      expect(screen.getAllByText("energetic").length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText("Fluid 88%")).toBeInTheDocument();
       expect(screen.getByText("Drama 74%")).toBeInTheDocument();
       expect(screen.getByText("#hero")).toBeInTheDocument();

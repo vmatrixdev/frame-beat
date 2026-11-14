@@ -154,7 +154,7 @@ export const DropZones: React.FC<DropZonesProps> = ({
             type="file"
             ref={videoInputRef}
             multiple
-            accept="video/*,image/*,.json,.mp4,.mkv,.mov,.avi,.webm,.jpg,.jpeg,.png,.webp"
+            accept="video/*,image/*,.json,.mp4,.m4v,.m4a,.mkv,.mov,.avi,.webm,.jpg,.jpeg,.png,.webp"
             className="hidden"
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {

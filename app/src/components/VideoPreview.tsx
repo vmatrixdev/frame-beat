@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from "react";
 import type { Timeline, TimelineCut, SceneCut } from "../types/schemas";
+import { formatMetricPercent } from "../utils/timelineEditor";
 import {
   Play,
   Pause,
@@ -556,12 +557,12 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
               )}
               {previewScene.fluidity_score !== null && previewScene.fluidity_score !== undefined && (
                 <span className="px-1.5 py-0.5 rounded bg-teal-950/50 border border-teal-800/60 text-teal-300">
-                  Fluidity {Math.round(previewScene.fluidity_score * 100)}%
+                  Fluidity {formatMetricPercent(previewScene.fluidity_score)}%
                 </span>
               )}
               {previewScene.dramatism_score !== null && previewScene.dramatism_score !== undefined && (
                 <span className="px-1.5 py-0.5 rounded bg-fuchsia-950/50 border border-fuchsia-800/60 text-fuchsia-300">
-                  Dramatism {Math.round(previewScene.dramatism_score * 100)}%
+                  Dramatism {formatMetricPercent(previewScene.dramatism_score)}%
                 </span>
               )}
               {previewScene.emotion_scores &&

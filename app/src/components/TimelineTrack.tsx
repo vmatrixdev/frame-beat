@@ -247,6 +247,19 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
             </button>
           )}
 
+          {selectedCutIndex !== null &&
+            selectedCutIndex !== undefined &&
+            cuts[selectedCutIndex] &&
+            cuts[selectedCutIndex].source_out > cuts[selectedCutIndex].source_in && (
+              <span
+                className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] font-mono text-indigo-300"
+                title="Selected clip source window — use Alt+Wheel or Alt+Left/Right to slip in place"
+              >
+                Src {cuts[selectedCutIndex].source_in.toFixed(2)}s–
+                {cuts[selectedCutIndex].source_out.toFixed(2)}s (Alt+Wheel)
+              </span>
+            )}
+
           {activeCutIndex >= 0 && (
             <span className="text-slate-400 hidden sm:inline">
               Active: Clip #{activeCutIndex + 1} (

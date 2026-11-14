@@ -3,18 +3,67 @@
   "title": "AMVMakerSchemas",
   "description": "Shared JSON schemas for AMV Maker pipeline communication between Python engine and UI/TypeScript",
   "definitions": {
+    "PinnedVideoRange": {
+      "type": "object",
+      "required": ["source_file", "start_sec", "end_sec"],
+      "properties": {
+        "source_file": { "type": "string" },
+        "start_sec": { "type": "number" },
+        "end_sec": { "type": "number" }
+      }
+    },
     "AudioCueNote": {
       "type": "object",
       "required": ["id", "timestamp_ms"],
       "properties": {
         "id": { "type": "string", "description": "Unique identifier for the audio cue note" },
-        "timestamp_ms": { "type": "integer", "description": "Millisecond-accurate timestamp on the audio track" },
+        "timestamp_ms": { "type": "integer", "description": "Millisecond-accurate start timestamp on the audio track" },
+        "end_ms": { "type": "integer", "description": "Optional end timestamp in ms when this cue spans an audio segment" },
         "tags": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Manual director tags for this audio moment"
+          "description": "Manual director tags for this audio moment or segment"
         },
-        "note": { "type": "string", "description": "Freeform creative instruction for the AI Director at this timestamp" }
+        "note": { "type": "string", "description": "Freeform creative instruction for the AI Director at this timestamp or segment" },
+        "pinned_scene_ids": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "description": "Exact highlighted scene IDs pinned by the user to this segment"
+        },
+        "pinned_ranges": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/PinnedVideoRange" },
+          "description": "Exact raw video time ranges specified by the user for this segment"
+        }
+      }
+    },
+    "ShortlistCandidate": {
+      "type": "object",
+      "required": ["scene_id", "source_file", "start_time", "end_time", "score", "reason"],
+      "properties": {
+        "scene_id": { "type": "integer" },
+        "source_file": { "type": "string" },
+        "start_time": { "type": "number" },
+        "end_time": { "type": "number" },
+        "score": { "type": "number" },
+        "reason": { "type": "string" },
+        "matched_criteria": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "SegmentShortlist": {
+      "type": "object",
+      "required": ["start_ms", "end_ms", "candidates"],
+      "properties": {
+        "start_ms": { "type": "integer" },
+        "end_ms": { "type": "integer" },
+        "segment_summary": { "type": "string" },
+        "candidates": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ShortlistCandidate" }
+        }
       }
     },
     "EnergySegment": {
@@ -108,7 +157,17 @@
           "items": { "type": "string" },
           "description": "Manual user tags for AI Director guidance"
         },
-        "user_note": { "type": "string", "description": "Manual user creative note for this clip or image" }
+        "user_note": { "type": "string", "description": "Manual user creative note for this clip or image" },
+        "semantic_tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "SigLIP zero-shot semantic vibe/expression tags"
+        },
+        "vibe_scores": {
+          "type": "object",
+          "additionalProperties": { "type": "number" },
+          "description": "SigLIP zero-shot vibe similarity scores"
+        }
       }
     },
     "ScenesCatalog": {

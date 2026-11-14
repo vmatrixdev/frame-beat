@@ -5,9 +5,15 @@
  */
 
 import type {
+  AudioCueNote,
   BeatsData,
+  ClipSearchHit,
+  ClipSearchQuery,
+  ProjectData,
+  ProjectSummary,
   ScenesCatalog,
   SceneCut,
+  SegmentShortlist,
   Timeline,
   RenderOptions,
   RenderProgress,
@@ -40,10 +46,113 @@ export function isTauriEnvironment(): boolean {
 
 class EngineClient {
   private forceMock: boolean = false;
+  private activeProjectId: string | null = null;
 
   constructor(config?: EngineClientConfig) {
     if (config?.forceMock !== undefined) {
       this.forceMock = config.forceMock;
+    }
+  }
+
+  setActiveProjectId(projectId: string | null) {
+    this.activeProjectId = projectId;
+  }
+
+  getActiveProjectId(): string | null {
+    return this.activeProjectId;
+  }
+
+  async listProjects(): Promise<ProjectSummary[]> {
+    if (!this.isMockMode) return [];
+    try {
+      const res = await fetch("/api/projects");
+      if (res.ok) {
+        const data = (await res.json()) as { projects?: ProjectSummary[] };
+        return data.projects || [];
+      }
+    } catch (e) {
+      console.warn("listProjects failed:", e);
+    }
+    return [];
+  }
+
+  async createProject(name: string): Promise<ProjectData | null> {
+    if (!this.isMockMode) return null;
+    try {
+      const res = await fetch("/api/projects/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { project?: ProjectData };
+        if (data.project) {
+          this.activeProjectId = data.project.id;
+          return data.project;
+        }
+      }
+    } catch (e) {
+      console.warn("createProject failed:", e);
+    }
+    return null;
+  }
+
+  async loadProject(id: string): Promise<ProjectData | null> {
+    if (!this.isMockMode) return null;
+    try {
+      const res = await fetch(`/api/projects/load?id=${encodeURIComponent(id)}`);
+      if (res.ok) {
+        const data = (await res.json()) as { project?: ProjectData };
+        if (data.project) {
+          this.activeProjectId = data.project.id;
+          return data.project;
+        }
+      }
+    } catch (e) {
+      console.warn("loadProject failed:", e);
+    }
+    return null;
+  }
+
+  async saveProject(payload: {
+    id: string;
+    name?: string;
+    audio_file?: string | null;
+    user_prompt?: string;
+    audio_notes?: AudioCueNote[];
+    beats?: BeatsData | null;
+    scenes?: ScenesCatalog | null;
+    timeline?: Timeline | null;
+  }): Promise<boolean> {
+    if (!this.isMockMode) return false;
+    try {
+      const res = await fetch("/api/projects/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn("saveProject failed:", e);
+      return false;
+    }
+  }
+
+  async deleteProject(id: string): Promise<boolean> {
+    if (!this.isMockMode) return false;
+    try {
+      const res = await fetch("/api/projects/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok && this.activeProjectId === id) {
+        this.activeProjectId = null;
+      }
+      return res.ok;
+    } catch (e) {
+      console.warn("deleteProject failed:", e);
+      return false;
     }
   }
 
@@ -216,6 +325,7 @@ class EngineClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         dirPath,
+        projectId: this.activeProjectId,
         thumbsDir: thumbsDir || "cache/thumbnails",
         stream: useStream,
         ...options,
@@ -324,8 +434,11 @@ class EngineClient {
           const batchId = `batch_${Date.now()}`;
           let batchDir = "";
           for (const file of files) {
+            const projParam = this.activeProjectId
+              ? `&projectId=${encodeURIComponent(this.activeProjectId)}`
+              : "";
             const upRes = await fetch(
-              `/api/upload-library-file?batchId=${encodeURIComponent(batchId)}&filename=${encodeURIComponent(file.name)}`,
+              `/api/upload-library-file?batchId=${encodeURIComponent(batchId)}&filename=${encodeURIComponent(file.name)}&size=${file.size}${projParam}`,
               {
                 method: "POST",
                 body: file,
@@ -444,7 +557,14 @@ class EngineClient {
     const res = await fetch("/api/analyze-segment", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourceFile, startTime, endTime, sampleFrames, sceneId }),
+      body: JSON.stringify({
+        sourceFile,
+        startTime,
+        endTime,
+        sampleFrames,
+        sceneId,
+        projectId: this.activeProjectId,
+      }),
     });
     if (!res.ok) {
       const errText = await res.text();
@@ -512,6 +632,194 @@ class EngineClient {
       console.warn("Tauri sidecar direct failed, falling back to procedural:", err);
       return generateProceduralTimeline(beats, catalog, prompt, projectTitle);
     }
+  }
+
+  /**
+   * Shortlist best-matching clips for an audio segment [startMs, endMs]
+   * using Gemini tool-calling over the indexed ScenesCatalog (with deterministic fallback).
+   */
+  async shortlistClips(
+    beats: BeatsData,
+    catalog: ScenesCatalog,
+    startMs: number,
+    endMs: number,
+    cueNote?: AudioCueNote | null,
+    limit: number = 8
+  ): Promise<SegmentShortlist> {
+    if (this.isMockMode) {
+      try {
+        const res = await fetch("/api/shortlist-clips", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            beats,
+            scenes: catalog,
+            startMs,
+            endMs,
+            cueNote: cueNote || undefined,
+            limit,
+          }),
+        });
+        if (res.ok) {
+          return (await res.json()) as SegmentShortlist;
+        }
+      } catch (e) {
+        console.warn("Dev server shortlist-clips failed, using local fallback:", e);
+      }
+    } else {
+      try {
+        const { Command } = await import("@tauri-apps/plugin-shell");
+        const args = [
+          "shortlist-clips",
+          "--beats", "cache/beats.json",
+          "--scenes", "cache/scenes.json",
+          "--start-ms", String(Math.round(startMs)),
+          "--end-ms", String(Math.round(endMs)),
+          "--limit", String(limit),
+        ];
+        const cmd = Command.sidecar("binaries/amv-engine", args);
+        const output = await cmd.execute();
+        if (output.code === 0) {
+          return JSON.parse(output.stdout) as SegmentShortlist;
+        }
+      } catch (err) {
+        console.warn("Tauri sidecar shortlist-clips failed, using local fallback:", err);
+      }
+    }
+
+    // Pure client-side fallback when neither Vite dev middleware nor Tauri sidecar is reachable
+    const tokens = new Set(
+      `${cueNote?.note || ""} ${(cueNote?.tags || []).join(" ")}`
+        .toLowerCase()
+        .split(/[\s,]+/)
+        .filter((t) => t.length >= 2)
+    );
+    const pinnedIds = new Set(cueNote?.pinned_scene_ids || []);
+    const candidates = catalog.scenes
+      .map((s) => {
+        let score = 0.25;
+        const matched: string[] = [];
+        if (pinnedIds.has(s.scene_id)) {
+          score += 0.55;
+          matched.push("pinned_scene");
+        }
+        const hay = `${s.source_file} ${s.user_note || ""} ${s.user_tags?.join(" ") || ""} ${s.visual_mood || ""} ${s.color_mood || ""}`.toLowerCase();
+        for (const tok of tokens) {
+          if (hay.includes(tok)) {
+            score += 0.12;
+            matched.push(tok);
+          }
+        }
+        return {
+          scene_id: s.scene_id,
+          source_file: s.source_file,
+          start_time: s.start_time,
+          end_time: s.end_time,
+          score: Number(Math.min(1, score).toFixed(3)),
+          reason: matched.length > 0 ? `Matches: ${matched.join(", ")}` : `${s.visual_mood || "balanced"} clip`,
+          matched_criteria: matched,
+        };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    return {
+      start_ms: startMs,
+      end_ms: endMs,
+      segment_summary: `${(startMs / 1000).toFixed(2)}s–${(endMs / 1000).toFixed(2)}s`,
+      candidates,
+    };
+  }
+
+  /**
+   * Run local SigLIP semantic indexing on analyzed scene keyframes.
+   */
+  async indexSemantics(catalog: ScenesCatalog, force: boolean = false): Promise<ScenesCatalog> {
+    if (this.isMockMode) {
+      try {
+        const res = await fetch("/api/index-semantics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scenes: catalog, force, projectId: this.activeProjectId }),
+        });
+        if (res.ok) {
+          return (await res.json()) as ScenesCatalog;
+        }
+      } catch (e) {
+        console.warn("Dev server index-semantics failed:", e);
+      }
+      return catalog;
+    }
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = ["index-semantics", "--scenes", "cache/scenes.json"];
+      if (force) args.push("--force");
+      const cmd = Command.sidecar("binaries/amv-engine", args);
+      const output = await cmd.execute();
+      if (output.code === 0) {
+        return JSON.parse(output.stdout) as ScenesCatalog;
+      }
+    } catch (err) {
+      console.warn("Tauri sidecar index-semantics failed:", err);
+    }
+    return catalog;
+  }
+
+  /**
+   * Unified clip search & filter interface shared with the AI agent's tool calls.
+   */
+  async searchClips(
+    catalog: ScenesCatalog,
+    query: ClipSearchQuery
+  ): Promise<ClipSearchHit[]> {
+    if (this.isMockMode) {
+      try {
+        const res = await fetch("/api/search-clips", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scenes: catalog, query, projectId: this.activeProjectId }),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as {
+            results?: ClipSearchHit[];
+          };
+          return data.results || [];
+        }
+      } catch (e) {
+        console.warn("Dev server search-clips failed:", e);
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Query cached SigLIP embeddings for natural-language vibe/expression search.
+   */
+  async semanticSearch(
+    catalog: ScenesCatalog,
+    query: string,
+    topK: number = 25
+  ): Promise<Array<{ scene_id: number; score: number }>> {
+    if (!query.trim()) return [];
+    if (this.isMockMode) {
+      try {
+        const res = await fetch("/api/semantic-search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scenes: catalog, query, topK, projectId: this.activeProjectId }),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as {
+            results?: Array<{ scene_id: number; score: number }>;
+          };
+          return data.results || [];
+        }
+      } catch (e) {
+        console.warn("Dev server semantic-search failed:", e);
+      }
+    }
+    return [];
   }
 
   /**

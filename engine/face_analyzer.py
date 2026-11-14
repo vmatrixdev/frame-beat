@@ -68,9 +68,25 @@ def classify_blendshapes(bs_map: Dict[str, float]) -> Tuple[str, float, Dict[str
     eye_squint = (bs_map.get("eyeSquintLeft", 0.0) + bs_map.get("eyeSquintRight", 0.0)) / 2.0
     mouth_stretch = (bs_map.get("mouthStretchLeft", 0.0) + bs_map.get("mouthStretchRight", 0.0)) / 2.0
 
-    joy_score = min(1.0, max(0.0, 1.1 * smile + 0.15 * eye_squint + (0.20 * jaw if smile >= 0.30 else 0.0)))
+    joy_score = min(
+        1.0,
+        max(
+            0.0,
+            1.1 * smile
+            + 0.15 * eye_squint
+            + (0.20 * jaw if smile >= 0.30 and brow_down < 0.25 else 0.0)
+            - 0.45 * brow_down
+            - 0.35 * frown,
+        ),
+    )
     surprise_score = min(1.0, max(0.0, 0.45 * eye_wide + 0.35 * brow_up + 0.30 * jaw - 0.30 * smile))
-    anger_score = min(1.0, max(0.0, 0.50 * brow_down + 0.35 * nose_sneer + 0.25 * mouth_press - 0.30 * smile))
+    anger_score = min(
+        1.0,
+        max(
+            0.0,
+            0.55 * brow_down + 0.35 * nose_sneer + 0.25 * mouth_press + 0.15 * eye_squint - 0.15 * smile,
+        ),
+    )
     sadness_score = min(
         1.0, max(0.0, 0.55 * frown + 0.35 * brow_up * (1.0 - eye_wide) + 0.15 * mouth_press - 0.30 * smile)
     )
@@ -89,19 +105,19 @@ def classify_blendshapes(bs_map: Dict[str, float]) -> Tuple[str, float, Dict[str
         "neutral": round(float(neutral_score), 3),
     }
 
-    if smile >= 0.45 and jaw >= 0.25:
+    if anger_score >= 0.38 or (brow_down >= 0.45 and (nose_sneer >= 0.20 or jaw >= 0.25)):
+        expression = "angry / intense"
+    elif joy_score >= 0.45 and jaw >= 0.25 and brow_down < 0.25:
         expression = "laughing / ecstatic"
-    elif smile >= 0.35:
+    elif joy_score >= 0.35 and brow_down < 0.25 and anger_score < 0.30:
         expression = "joyful / smiling"
     elif surprise_score >= 0.40 or (eye_wide >= 0.40 and jaw >= 0.25):
         expression = "surprised / amazed"
-    elif anger_score >= 0.38 or (brow_down >= 0.45 and nose_sneer >= 0.25):
-        expression = "angry / intense"
     elif sadness_score >= 0.35 or frown >= 0.40:
         expression = "sad / melancholic"
     elif worry_score >= 0.35 or (brow_up >= 0.35 and mouth_stretch >= 0.30):
         expression = "worried / tense"
-    elif brow_down >= 0.30 or mouth_press >= 0.35:
+    elif brow_down >= 0.28 or mouth_press >= 0.32:
         expression = "focused / determined"
     else:
         expression = "calm / neutral"
@@ -211,11 +227,25 @@ def analyze_frame_semantics(frame_bgr: np.ndarray) -> Dict[str, Any]:
         return default_result
 
 
+def _frame_intensity(res: Dict[str, Any]) -> Tuple[int, float, int]:
+    emotions = res.get("emotion_scores") or {}
+    peak_emotion = max(
+        (float(v) for k, v in emotions.items() if k != "neutral"),
+        default=0.0,
+    )
+    return (
+        1 if res["has_faces"] else 0,
+        peak_emotion,
+        res["face_count"] or 0,
+    )
+
+
 def analyze_frames_semantics(frames_bgr: List[np.ndarray]) -> Tuple[Dict[str, Any], int]:
     """
     Evaluates multiple sampled frames from a video highlight segment and returns
     (aggregated_semantics, best_frame_index). Prioritizes frames with detected
-    faces, highest smile_score, and highest face_count.
+    faces, highest overall emotional intensity (not just smile), and face count,
+    and averages emotion_scores across face-detected frames to reduce outlier noise.
     """
     if not frames_bgr:
         return {
@@ -227,26 +257,28 @@ def analyze_frames_semantics(frames_bgr: List[np.ndarray]) -> Tuple[Dict[str, An
             "emotion_scores": None,
         }, 0
 
+    results: List[Dict[str, Any]] = [analyze_frame_semantics(f) for f in frames_bgr]
     best_idx = len(frames_bgr) // 2
-    best_res = analyze_frame_semantics(frames_bgr[best_idx])
-    best_score = (
-        1 if best_res["has_faces"] else 0,
-        best_res["smile_score"] or 0.0,
-        best_res["face_count"] or 0,
-    )
+    best_res = results[best_idx]
+    best_score = _frame_intensity(best_res)
 
-    for idx, frame in enumerate(frames_bgr):
-        if idx == best_idx:
-            continue
-        res = analyze_frame_semantics(frame)
-        score = (
-            1 if res["has_faces"] else 0,
-            res["smile_score"] or 0.0,
-            res["face_count"] or 0,
-        )
+    for idx, res in enumerate(results):
+        score = _frame_intensity(res)
         if score > best_score:
             best_score = score
             best_res = res
             best_idx = idx
+
+    face_results = [r for r in results if r["has_faces"] and r.get("emotion_scores")]
+    if face_results:
+        keys = ("joy", "surprise", "anger", "sadness", "worry", "neutral")
+        avg_emotions = {
+            k: round(
+                sum(float(r["emotion_scores"].get(k, 0.0)) for r in face_results) / len(face_results),
+                3,
+            )
+            for k in keys
+        }
+        best_res = {**best_res, "emotion_scores": avg_emotions}
 
     return best_res, best_idx

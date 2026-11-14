@@ -16,7 +16,7 @@ from engine.face_analyzer import analyze_frame_semantics, analyze_frames_semanti
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
+VIDEO_EXTENSIONS = {".mp4", ".m4v", ".m4a", ".mkv", ".mov", ".avi", ".webm"}
 
 
 def compute_frame_metrics(frame: np.ndarray) -> tuple[float, float]:
@@ -373,6 +373,8 @@ def analyze_video(
     max_scene_duration: float = 5.5,
     target_window_duration: float = 3.5,
     min_window_duration: float = 2.0,
+    embed_semantics: bool = False,
+    semantic_cache_dir: Optional[Path] = None,
 ) -> List[SceneCut]:
     """
     Detects scenes in a video file and saves keyframe thumbnails.
@@ -424,6 +426,16 @@ def analyze_video(
         )
 
     scene_cuts: List[SceneCut] = []
+    semantic_embedder = None
+    if embed_semantics:
+        try:
+            from engine.semantic_indexer import BatchSemanticEmbedder
+
+            semantic_embedder = BatchSemanticEmbedder(cache_dir=semantic_cache_dir)
+            if not semantic_embedder.enabled:
+                semantic_embedder = None
+        except Exception:
+            semantic_embedder = None
 
     for idx, (start_sec, end_sec, win_motion) in enumerate(highlight_windows):
         duration = max(0.0, end_sec - start_sec)
@@ -468,6 +480,19 @@ def analyze_video(
             if motion is None and len(sampled_frames) >= 2:
                 motion = compute_motion_score(sampled_frames)
 
+        semantic_tags: List[str] = []
+        vibe_scores: Optional[Dict[str, float]] = None
+        if semantic_embedder is not None and sampled_frames:
+            scene_key = f"{str(video_path.resolve())}|{round(start_sec, 3):.3f}|{round(end_sec, 3):.3f}"
+            semantic_tags, vibe_scores, sem_expr = semantic_embedder.embed_scene_frames(
+                scene_key, sampled_frames
+            )
+            if sem_expr and (
+                not semantics["dominant_expression"]
+                or semantics["dominant_expression"] == "calm / neutral"
+            ):
+                semantics["dominant_expression"] = sem_expr
+
         scene_cuts.append(
             SceneCut(
                 scene_id=idx,
@@ -491,10 +516,14 @@ def analyze_video(
                 dramatism_score=mood_metrics["dramatism_score"],
                 color_mood=mood_metrics["color_mood"],
                 visual_mood=mood_metrics["visual_mood"],
+                semantic_tags=semantic_tags,
+                vibe_scores=vibe_scores,
             )
         )
 
     cap.release()
+    if semantic_embedder is not None:
+        semantic_embedder.flush()
     return scene_cuts
 
 
@@ -505,6 +534,8 @@ def analyze_directory(
     max_scene_duration: float = 5.5,
     target_window_duration: float = 3.5,
     min_window_duration: float = 2.0,
+    embed_semantics: bool = False,
+    semantic_cache_dir: Optional[Path] = None,
 ) -> ScenesCatalog:
     """
     Analyzes all video files in a directory and returns a unified ScenesCatalog.
@@ -536,6 +567,8 @@ def analyze_directory(
                 max_scene_duration=max_scene_duration,
                 target_window_duration=target_window_duration,
                 min_window_duration=min_window_duration,
+                embed_semantics=embed_semantics,
+                semantic_cache_dir=semantic_cache_dir,
             )
             for cut in cuts:
                 cut.scene_id = global_scene_id

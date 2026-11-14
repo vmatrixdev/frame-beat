@@ -112,6 +112,12 @@ Autonomous verification, packaging scripts, CI/CD, and developer documentation.
 
 ---
 
-## Phase 6: Scoped AI Director & Advanced AI Integration
-- [ ] **6.1: AI Integration Design & Scoped Directing**
-  - Dedicated AI integration architecture (full-timeline vs. localized section re-direction, iterative AI refinement, and annotation-driven pacing).
+## Phase 6: AI-Augmented Editing, Scoped Directing & Slip Editing
+- [x] **6.1: Audio Segment Notes & AI Clip Shortlisting (Tool-Assisted Search)**
+  - Allow the editor to attach notes to specific song frames or selected audio segments (describing mood, desired visuals, or referencing specific clips/time ranges).
+  - Use AI with static tool-calling / search over already-indexed & analyzed clips (visual/audio moods, facial expressions, optical-flow fluidity, `user_tags`, `user_note`) to shortlist candidate clips per audio segment for human review and manual placement.
+- [ ] **6.2: Scoped Range Directing ("Fill Selected Range")**
+  - Allow selecting a specific `[start_ms, end_ms]` range on the timeline and invoking the AI Director only for that range instead of 1-shotting the entire timeline.
+  - Provide focused context (range beats/energy, overlapping `audio_notes`/segment notes, and candidate/preferred clips) and support reviewing/applying options without disturbing the rest of the timeline.
+- [x] **6.3: In-Place Slip Editing (Source Window Scroll)**
+  - When a beat-synced clip is selected on the timeline, allow scrolling up/down (`Alt+Wheel`, `Alt+Shift+Wheel`, or `Alt+Left/Right`) to shift the clip's source window (`source_in` & `source_out`) forward or backward within the original video, clamped to source duration, without changing its synced timeline position or duration. Reassigns timeline zoom to `Cmd/Ctrl+Wheel` and horizontal pan to `Shift+Wheel`.

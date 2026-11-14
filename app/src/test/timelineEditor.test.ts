@@ -11,6 +11,7 @@ import {
   computeZoomAnchor,
   computeZoomScrollLeft,
   mergeScenesCatalog,
+  slipCut,
 } from "../utils/timelineEditor";
 import type { BeatsData, SceneCut, ScenesCatalog, TimelineCut } from "../types/schemas";
 
@@ -187,5 +188,30 @@ describe("NLE timelineEditor utilities", () => {
     expect(updated.total_scenes).toBe(3);
     expect(updated.scenes.filter((s) => s.source_file === "/media/b.mp4")).toHaveLength(1);
     expect(updated.scenes.filter((s) => s.source_file === "/media/a.mp4")).toHaveLength(2);
+  });
+
+  it("slips a video clip source window in place without changing timeline position", () => {
+    // BASE_CUTS[0]: timeline 0..4, source 2..6 (span 4s)
+    const forward = slipCut(BASE_CUTS, 0, 0.5, { maxSourceDuration: 8.0 });
+    expect(forward[0].timeline_start).toBe(0.0);
+    expect(forward[0].timeline_end).toBe(4.0);
+    expect(forward[0].source_in).toBe(2.5);
+    expect(forward[0].source_out).toBe(6.5);
+
+    // Clamps at maxSourceDuration while preserving 4s span
+    const clampedRight = slipCut(BASE_CUTS, 0, 10.0, { maxSourceDuration: 8.0 });
+    expect(clampedRight[0].source_in).toBe(4.0);
+    expect(clampedRight[0].source_out).toBe(8.0);
+    expect(clampedRight[0].timeline_start).toBe(0.0);
+    expect(clampedRight[0].timeline_end).toBe(4.0);
+
+    // Clamps at 0 while preserving 4s span
+    const clampedLeft = slipCut(BASE_CUTS, 0, -5.0, { maxSourceDuration: 8.0 });
+    expect(clampedLeft[0].source_in).toBe(0.0);
+    expect(clampedLeft[0].source_out).toBe(4.0);
+
+    // No-op on still images
+    const imgCut: TimelineCut[] = [{ ...BASE_CUTS[0], source_in: 0, source_out: 0 }];
+    expect(slipCut(imgCut, 0, 0.5, { isStillImage: true })).toBe(imgCut);
   });
 });

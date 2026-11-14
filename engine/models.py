@@ -7,11 +7,47 @@ from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class PinnedVideoRange(BaseModel):
+    source_file: str = Field(..., description="Path to source video file")
+    start_sec: float = Field(..., ge=0.0, description="Start time in source video (seconds)")
+    end_sec: float = Field(..., ge=0.0, description="End time in source video (seconds)")
+
+
 class AudioCueNote(BaseModel):
     id: str = Field(..., description="Unique identifier for the audio cue note")
-    timestamp_ms: int = Field(..., description="Millisecond-accurate position on the audio track")
+    timestamp_ms: int = Field(..., description="Millisecond-accurate start position on the audio track")
+    end_ms: Optional[int] = Field(
+        default=None, description="Optional end timestamp in ms when this cue spans an audio segment"
+    )
     tags: List[str] = Field(default_factory=list, description="User-assigned cue tags")
-    note: str = Field(default="", description="User note describing the musical moment")
+    note: str = Field(default="", description="User note describing the musical moment or segment")
+    pinned_scene_ids: List[int] = Field(
+        default_factory=list, description="Exact highlighted scene IDs pinned to this segment"
+    )
+    pinned_ranges: List[PinnedVideoRange] = Field(
+        default_factory=list, description="Exact raw video time ranges specified for this segment"
+    )
+
+
+class ShortlistCandidate(BaseModel):
+    scene_id: int = Field(..., description="Matched SceneCut scene_id")
+    source_file: str = Field(..., description="Path to source media file")
+    start_time: float = Field(..., description="Clip in-point in seconds")
+    end_time: float = Field(..., description="Clip out-point in seconds")
+    score: float = Field(..., description="Relevance score (0.0 to 1.0)")
+    reason: str = Field(..., description="Short explanation of why this clip fits the segment")
+    matched_criteria: List[str] = Field(
+        default_factory=list, description="Matched tags, moods, expressions, or pins"
+    )
+
+
+class SegmentShortlist(BaseModel):
+    start_ms: int = Field(..., description="Segment start timestamp in milliseconds")
+    end_ms: int = Field(..., description="Segment end timestamp in milliseconds")
+    segment_summary: str = Field(default="", description="Brief summary of segment audio mood and notes")
+    candidates: List[ShortlistCandidate] = Field(
+        default_factory=list, description="Ranked candidate clips shortlisted for this segment"
+    )
 
 
 class EnergySegment(BaseModel):
@@ -88,6 +124,12 @@ class SceneCut(BaseModel):
     )
     user_tags: List[str] = Field(default_factory=list, description="User-assigned scene tags")
     user_note: Optional[str] = Field(default=None, description="User note for this scene")
+    semantic_tags: List[str] = Field(
+        default_factory=list, description="SigLIP zero-shot semantic vibe/expression tags"
+    )
+    vibe_scores: Optional[Dict[str, float]] = Field(
+        default=None, description="SigLIP zero-shot vibe similarity scores"
+    )
 
 
 class ScenesCatalog(BaseModel):
@@ -128,4 +170,29 @@ class RenderProgress(BaseModel):
     fps: float = Field(default=0.0, description="Current encoding FPS")
     speed: str = Field(default="0x", description="Current encoding speed")
     frame: int = Field(default=0, description="Current encoded frame count")
+
+
+class ClipSearchQuery(BaseModel):
+    """Shared clip search & filter query used by both UI filtering and AI agent tools."""
+
+    query_text: Optional[str] = Field(
+        default=None, description="Natural-language text/vibe query (uses SigLIP + metadata match)"
+    )
+    tags: Optional[List[str]] = Field(default=None, description="Filter/boost by user tags")
+    semantic_tag: Optional[str] = Field(default=None, description="Filter by SigLIP semantic tag")
+    visual_mood: Optional[str] = Field(default=None, description="Filter by visual mood")
+    color_mood: Optional[str] = Field(default=None, description="Filter by color mood")
+    expression: Optional[str] = Field(default=None, description="Filter by facial expression")
+    min_duration: Optional[float] = Field(default=None, description="Minimum clip duration in seconds")
+    max_duration: Optional[float] = Field(default=None, description="Maximum clip duration in seconds")
+    min_fluidity: Optional[float] = Field(default=None, description="Minimum fluidity score")
+    min_dramatism: Optional[float] = Field(default=None, description="Minimum dramatism score")
+    has_faces: Optional[bool] = Field(default=None, description="Require clips with/without faces")
+    media_type: Optional[str] = Field(default=None, description="Filter by 'video' or 'image'")
+    source_file: Optional[str] = Field(default=None, description="Filter by source file name/path substring")
+    sort_by: Literal["relevance", "index", "sharpness", "brightness", "fluidity", "dramatism"] = Field(
+        default="relevance", description="Sort order for returned clips"
+    )
+    limit: int = Field(default=24, ge=1, le=200, description="Maximum number of clips to return")
+
 

@@ -289,3 +289,134 @@ def test_build_director_input_includes_rich_metrics_and_annotations():
 
     for keyword in ["user_tags", "user_note", "audio_cue_notes", "vocal_energy", "fluidity_score", "dramatism_score"]:
         assert keyword in DIRECTOR_SYSTEM_INSTRUCTION
+
+
+def test_clip_search_and_shortlist_for_segment(mock_beats: BeatsData):
+    """Verifies static clip search tools and segment shortlisting with pinned clips and segment notes."""
+    from engine.clip_search import get_scene_details, list_source_summaries, search_scenes
+    from engine.director import shortlist_clips_for_segment
+    from engine.models import AudioCueNote, PinnedVideoRange
+
+    catalog = ScenesCatalog(
+        source_files=["/media/ceremony.mp4", "/media/dance.mp4"],
+        total_scenes=3,
+        scenes=[
+            SceneCut(
+                scene_id=0,
+                source_file="/media/ceremony.mp4",
+                start_time=1.0,
+                end_time=4.0,
+                duration=3.0,
+                visual_mood="warm_intimate",
+                color_mood="warm_golden",
+                has_faces=True,
+                smile_score=0.85,
+                user_tags=["bride", "smile"],
+                user_note="Emotional smile during vows",
+            ),
+            SceneCut(
+                scene_id=1,
+                source_file="/media/dance.mp4",
+                start_time=5.0,
+                end_time=8.5,
+                duration=3.5,
+                visual_mood="energetic_action",
+                fluidity_score=84.0,
+                dramatism_score=70.0,
+                user_tags=["party", "sparklers"],
+                user_note="High energy dance floor",
+            ),
+            SceneCut(
+                scene_id=2,
+                source_file="/media/dance.mp4",
+                start_time=10.0,
+                end_time=13.0,
+                duration=3.0,
+                visual_mood="serene_scenic",
+                user_tags=["outro"],
+            ),
+        ],
+    )
+
+    summaries = list_source_summaries(catalog)
+    assert len(summaries) == 2
+    assert summaries[1]["clip_count"] == 2
+
+    hits = search_scenes(catalog, query_text="sparklers", min_fluidity=80.0)
+    assert len(hits) == 1
+    assert hits[0]["scene_id"] == 1
+
+    details = get_scene_details(catalog, 0)
+    assert details is not None
+    assert details["visual_mood"] == "warm_intimate"
+
+    cue = AudioCueNote(
+        id="seg-1",
+        timestamp_ms=2000,
+        end_ms=6000,
+        tags=["sparklers", "party"],
+        note="Drop hits here, want energetic dance floor",
+        pinned_scene_ids=[0],
+        pinned_ranges=[PinnedVideoRange(source_file="/media/dance.mp4", start_sec=5.5, end_sec=7.5)],
+    )
+    shortlist = shortlist_clips_for_segment(
+        beats=mock_beats,
+        catalog=catalog,
+        start_ms=2000,
+        end_ms=6000,
+        cue_note=cue,
+        limit=3,
+        force_fallback=True,
+    )
+    assert shortlist.start_ms == 2000
+    assert shortlist.end_ms == 6000
+    assert len(shortlist.candidates) == 3
+    # Pinned scene (0) and pinned/matched dance clip (1) should rank top 2
+    top_ids = {c.scene_id for c in shortlist.candidates[:2]}
+    assert top_ids == {0, 1}
+
+
+def test_clip_search_query_contract():
+    """Verifies ClipSearchQuery contract shared between UI filters and AI agent tools."""
+    from engine.clip_search import build_search_tool_functions, search_scenes_from_query
+    from engine.models import ClipSearchQuery
+
+    catalog = ScenesCatalog(
+        source_files=["/media/action.mp4", "/media/calm.mp4"],
+        total_scenes=2,
+        scenes=[
+            SceneCut(
+                scene_id=0,
+                source_file="/media/action.mp4",
+                start_time=0.0,
+                end_time=3.0,
+                duration=3.0,
+                dramatism_score=72.0,
+                sharpness_score=65.0,
+                semantic_tags=["epic action / fight", "brave / determined"],
+            ),
+            SceneCut(
+                scene_id=1,
+                source_file="/media/calm.mp4",
+                start_time=0.0,
+                end_time=3.0,
+                duration=3.0,
+                dramatism_score=25.0,
+                sharpness_score=90.0,
+                semantic_tags=["calm / serene", "warm / intimate"],
+            ),
+        ],
+    )
+
+    q_sem = ClipSearchQuery(semantic_tag="epic action / fight", limit=10)
+    res_sem = search_scenes_from_query(catalog, q_sem)
+    assert [r["scene_id"] for r in res_sem] == [0]
+
+    q_sort = ClipSearchQuery(sort_by="sharpness", limit=10)
+    res_sort = search_scenes_from_query(catalog, q_sort)
+    assert [r["scene_id"] for r in res_sort] == [1, 0]
+
+    tools = build_search_tool_functions(catalog)
+    tool_search = tools[1]
+    res_tool = tool_search(semantic_tag="calm / serene", source_file="calm.mp4")
+    assert [r["scene_id"] for r in res_tool] == [1]
